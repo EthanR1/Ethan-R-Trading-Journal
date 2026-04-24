@@ -1212,14 +1212,38 @@ function render() {
   window.scrollTo(0, 0);
 }
 
+// ─── REMOTE SYNC ──────────────────────────────────────────────────────────────
+// Fetches data.json (committed to the repo) and merges any trades/journals not
+// already in localStorage. Never overwrites locally-entered data.
+async function syncFromRemote() {
+  try {
+    const res = await fetch('./data.json?t=' + Date.now());
+    if (!res.ok) return;
+    const remote = await res.json();
+    if (!Array.isArray(remote.trades) || !Array.isArray(remote.journals)) return;
+    const local = getDB();
+    const localIds   = new Set(local.trades.map(t => t.id));
+    const localDates = new Set(local.journals.map(j => j.date));
+    let changed = false;
+    remote.trades.forEach(t => {
+      if (!localIds.has(t.id)) { local.trades.push(t); changed = true; }
+    });
+    remote.journals.forEach(j => {
+      if (!localDates.has(j.date)) { local.journals.push(j); changed = true; }
+    });
+    if (changed) {
+      local.trades.sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+      saveDB(local);
+      showToast('Trades synced ✓');
+      render();
+    }
+  } catch (e) { /* data.json absent or malformed — silent */ }
+}
+
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 function init() {
-  // Navigate to today's day if there are trades
-  const all = getAllTrades();
-  if (all.length > 0) {
-    state.view = 'calendar';
-  }
   render();
+  syncFromRemote();
 }
 
 // Keyboard shortcut: Escape closes modal
