@@ -299,9 +299,10 @@ function renderTopbar() {
 // ─── CALENDAR VIEW ────────────────────────────────────────────────────────────
 function renderCalendar() {
   const { calYear, calMonth } = state;
-  const trades = getAllTrades();
+  const db = getDB();
+  const trades = db.trades;
 
-  // Build per-day lookup
+  // Build per-day lookups
   const dayMap = {};
   trades.forEach(t => {
     if (!dayMap[t.date]) dayMap[t.date] = { pnl: 0, count: 0, trades: [] };
@@ -309,6 +310,9 @@ function renderCalendar() {
     dayMap[t.date].count++;
     dayMap[t.date].trades.push(t);
   });
+
+  const journalMap = {};
+  db.journals.forEach(j => { journalMap[j.date] = j; });
 
   const daysInMonth  = getDaysInMonth(calYear, calMonth);
   const firstDay     = getFirstDayOfMonth(calYear, calMonth);
@@ -338,20 +342,29 @@ function renderCalendar() {
     let cls      = 'cal-cell';
     if (isToday) cls += ' today';
 
+    const journal = journalMap[key];
+    let psychHtml = '';
+    if (journal) {
+      const moodEmoji = { rough:'😤', off:'😟', neutral:'😐', good:'🙂', locked:'🔥' }[journal.mood] || '';
+      const rulesCls  = { all:'psych-good', mostly:'psych-ok', some:'psych-warn', several:'psych-bad', revenge:'psych-bad' }[journal.rules] || '';
+      const rulesLbl  = { all:'Rules ✓', mostly:'Mostly ✓', some:'Broke rules', several:'Multi-break', revenge:'Revenge' }[journal.rules] || '';
+      psychHtml = `<div class="cal-psych">${moodEmoji ? `<span class="cal-psych-mood">${moodEmoji}</span>` : ''}${rulesLbl ? `<span class="cal-psych-rules ${rulesCls}">${rulesLbl}</span>` : ''}</div>`;
+    }
+
     if (data) {
       const sign = data.pnl > 0 ? 'pos' : data.pnl < 0 ? 'neg' : '';
       cls += data.pnl >= 0 ? ' has-pos' : ' has-neg';
-      const dots = data.trades.slice(0, 6).map(t =>
-        `<span class="cal-dot ${t.pnl > 0 ? 'pos' : t.pnl < 0 ? 'neg' : ''}"></span>`).join('');
-      dotHtml  = `<div class="cal-dots">${dots}</div>`;
-      pnlHtml  = `<div class="cal-pnl ${sign}">${fmtPnl(data.pnl)}</div>
-                  <div class="cal-meta">${data.count} trade${data.count !== 1 ? 's' : ''}</div>`;
+      pnlHtml = `
+        <div class="cal-bottom">
+          <div class="cal-pnl ${sign}">${fmtPnl(data.pnl)}</div>
+          <div class="cal-meta">${data.count} trade${data.count !== 1 ? 's' : ''}</div>
+        </div>`;
     }
 
     cells += `
       <div class="${cls}" onclick="openDay('${key}')">
         <span class="cal-date">${d}</span>
-        ${dotHtml}
+        ${psychHtml}
         ${pnlHtml}
       </div>`;
   }
@@ -376,6 +389,38 @@ function renderCalendar() {
         ${dowHeaders}
         ${cells}
       </div>
+    </div>`;
+}
+
+// ─── PSYCHOLOGY CARD ──────────────────────────────────────────────────────────
+function renderPsychCard(j, dateStr) {
+  const moodMap  = { rough:'😤 Rough', off:'😟 Off', neutral:'😐 Neutral', good:'🙂 Good', locked:'🔥 Locked In' };
+  const sleepMap = { terrible:'Terrible 😴', poor:'Poor 😪', okay:'Okay 😑', good:'Good 😌', great:'Great ⚡' };
+  const ratingMap = { 1:'💀 1/5', 2:'😓 2/5', 3:'😐 3/5', 4:'😊 4/5', 5:'🏆 5/5' };
+  const rulesMap = {
+    all:     { label: 'Followed all rules',           cls: 'psych-good' },
+    mostly:  { label: 'Mostly followed rules',        cls: 'psych-ok'   },
+    some:    { label: 'Broke a few rules',             cls: 'psych-warn' },
+    several: { label: 'Broke several rules',           cls: 'psych-bad'  },
+    revenge: { label: 'Went off-plan / revenge traded', cls: 'psych-bad' },
+  };
+  const rules = rulesMap[j.rules];
+
+  const items = [
+    j.mood      && `<div class="psych-item"><div class="psych-lbl">Mood</div><div class="psych-val">${moodMap[j.mood] || j.mood}</div></div>`,
+    j.sleep     && `<div class="psych-item"><div class="psych-lbl">Sleep</div><div class="psych-val">${sleepMap[j.sleep] || j.sleep}</div></div>`,
+    j.dayrating && `<div class="psych-item"><div class="psych-lbl">Day Rating</div><div class="psych-val">${ratingMap[j.dayrating] || j.dayrating + '/5'}</div></div>`,
+    rules       && `<div class="psych-item"><div class="psych-lbl">Rules</div><div class="psych-val ${rules.cls}">${rules.label}</div></div>`,
+    j.focus     && `<div class="psych-item psych-item-wide"><div class="psych-lbl">Today's Focus</div><div class="psych-val psych-focus-text">${j.focus}</div></div>`,
+  ].filter(Boolean).join('');
+
+  return `
+    <div class="psych-card">
+      <div class="psych-card-head">
+        <span class="psych-card-title">Psychology</span>
+        <button class="btn btn-ghost btn-sm" onclick="openJournalModal('${dateStr}')">Edit</button>
+      </div>
+      <div class="psych-items">${items}</div>
     </div>`;
 }
 
@@ -445,6 +490,8 @@ function renderDay(dateStr) {
           </span>
         </div>
       </div>
+
+      ${journal ? renderPsychCard(journal, dateStr) : ''}
 
       <div class="day-grid">
         <div>

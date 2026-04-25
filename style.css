@@ -18,14 +18,14 @@
   --text2:  #8c8ca0;
   --text3:  #4a4a5e;
 
-  --amber:   #f59e0b;
-  --amber-d: rgba(245,158,11,0.12);
+  --amber:   #5b8fff;
+  --amber-d: rgba(91,143,255,0.12);
   --green:   #0fd97a;
   --green-d: rgba(15,217,122,0.10);
   --red:     #f43f5e;
   --red-d:   rgba(244,63,94,0.10);
-  --blue:    #5b8def;
-  --blue-d:  rgba(91,141,239,0.10);
+  --blue:    #5b8fff;
+  --blue-d:  rgba(91,143,255,0.10);
   --teal:    #2dd4bf;
   --purple:  #a78bfa;
 
@@ -137,12 +137,12 @@ body {
 }
 .btn-primary {
   background: var(--amber);
-  color: #1a1000;
-  box-shadow: 0 0 0 0 rgba(245,158,11,0);
+  color: #fff;
+  box-shadow: 0 0 0 0 rgba(91,143,255,0);
 }
 .btn-primary:hover {
-  background: #fbbf24;
-  box-shadow: 0 0 20px rgba(245,158,11,0.2);
+  background: #7aa3ff;
+  box-shadow: 0 0 20px rgba(91,143,255,0.25);
 }
 .btn-ghost {
   background: var(--bg2);
@@ -301,14 +301,27 @@ body {
 
 .cal-meta { font-size: 10px; color: var(--text3); margin-top: 2px; }
 
-.cal-dots { display: flex; gap: 3px; margin-bottom: 3px; flex-wrap: wrap; }
-.cal-dot {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: var(--text3);
+.cal-bottom { margin-top: auto; }
+
+.cal-psych {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  flex-wrap: wrap;
 }
-.cal-dot.pos { background: var(--green); }
-.cal-dot.neg { background: var(--red); }
+.cal-psych-mood { font-size: 13px; line-height: 1; }
+.cal-psych-rules {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: .04em;
+}
+.psych-good { background: var(--green-d); color: var(--green); }
+.psych-ok   { background: var(--amber-d); color: var(--amber); }
+.psych-warn { background: rgba(251,146,60,.12); color: #fb923c; }
+.psych-bad  { background: var(--red-d); color: var(--red); }
 
 /* ─── DAY VIEW ────────────────────────────────────────────────────────────── */
 .day-header {
@@ -470,6 +483,61 @@ body {
 .tag-green { background: var(--green-d); color: var(--green); border-color: rgba(15,217,122,.15); }
 .tag-red   { background: var(--red-d);   color: var(--red);   border-color: rgba(244,63,94,.15); }
 
+/* ─── PSYCHOLOGY CARD ─────────────────────────────────────────────────────── */
+.psych-card {
+  background: var(--bg1);
+  border: 1px solid var(--border);
+  border-radius: var(--rl);
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+.psych-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.psych-card-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--amber);
+}
+.psych-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+}
+.psych-item {
+  padding: 12px 16px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  min-width: 140px;
+  flex: 1;
+}
+.psych-item:last-child { border-right: none; }
+.psych-item-wide { flex-basis: 100%; border-right: none; }
+.psych-lbl {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  margin-bottom: 4px;
+}
+.psych-val {
+  font-size: 13px;
+  color: var(--text1);
+  font-weight: 500;
+}
+.psych-val.psych-good { color: var(--green); }
+.psych-val.psych-ok   { color: var(--amber); }
+.psych-val.psych-warn { color: #fb923c; }
+.psych-val.psych-bad  { color: var(--red); }
+.psych-focus-text { font-weight: 400; color: var(--text2); font-size: 13px; line-height: 1.5; }
+
 /* ─── STATS VIEW ──────────────────────────────────────────────────────────── */
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 
@@ -552,7 +620,7 @@ body {
 .badge-short { background: var(--red-d); color: var(--red); }
 .grade-ap { background: rgba(15,217,122,.14); color: var(--green); }
 .grade-a  { background: rgba(15,217,122,.09); color: var(--green); }
-.grade-b  { background: rgba(245,158,11,.12); color: var(--amber); }
+.grade-b  { background: rgba(91,143,255,.12); color: var(--amber); }
 .grade-c  { background: rgba(167,139,250,.12); color: var(--purple); }
 .grade-d  { background: var(--red-d); color: var(--red); }
 
@@ -647,7 +715,7 @@ textarea {
 }
 input:focus, select:focus, textarea:focus {
   border-color: var(--amber);
-  box-shadow: 0 0 0 3px rgba(245,158,11,0.1);
+  box-shadow: 0 0 0 3px rgba(91,143,255,0.12);
 }
 textarea { resize: vertical; min-height: 76px; line-height: 1.6; }
 select option { background: var(--bg2); }
