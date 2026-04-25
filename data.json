@@ -1,8 +1,8 @@
 {
   "trades": [
     {
-      "id": "tr_20250424_0720_mnq_01",
-      "date": "2025-04-24",
+      "id": "tr_20260424_0720_mnq_01",
+      "date": "2026-04-24",
       "time": "07:20",
       "symbol": "MNQ",
       "direction": "long",
@@ -21,8 +21,8 @@
       "diff": "Slow down on order entry. Pre-set TP before entering. Confirm direction before clicking. A breakeven stop is protection — don't need to panic."
     },
     {
-      "id": "tr_20250424_0735_mnq_02",
-      "date": "2025-04-24",
+      "id": "tr_20260424_0735_mnq_02",
+      "date": "2026-04-24",
       "time": "07:35",
       "symbol": "MNQ",
       "direction": "long",
@@ -41,8 +41,8 @@
       "diff": "Never use stop-limit orders at a key level in fast market conditions. Use stop-market, or wait for sweep confirmation before entering."
     },
     {
-      "id": "tr_20250424_0741_mnq_03",
-      "date": "2025-04-24",
+      "id": "tr_20260424_0741_mnq_03",
+      "date": "2026-04-24",
       "time": "07:41",
       "symbol": "MNQ",
       "direction": "long",
@@ -63,7 +63,7 @@
   ],
   "journals": [
     {
-      "date": "2025-04-24",
+      "date": "2026-04-24",
       "mood": "good",
       "sleep": "poor",
       "dayrating": "3",

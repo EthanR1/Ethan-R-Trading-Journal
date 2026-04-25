@@ -98,7 +98,8 @@ function saveJournal(journal) {
 
 // ─── UTILITIES ────────────────────────────────────────────────────────────────
 function todayStr() {
-  return new Date().toISOString().split('T')[0];
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
 function fmtDate(dateStr) {
@@ -1259,17 +1260,31 @@ function render() {
   window.scrollTo(0, 0);
 }
 
+// ─── MIGRATE ──────────────────────────────────────────────────────────────────
+// Removes any trades/journals that were seeded with the wrong year (2025).
+function migrateData() {
+  const db = getDB();
+  const badIds = new Set([
+    'tr_20250424_0720_mnq_01',
+    'tr_20250424_0735_mnq_02',
+    'tr_20250424_0741_mnq_03',
+  ]);
+  const before = db.trades.length;
+  db.trades   = db.trades.filter(t => !badIds.has(t.id));
+  db.journals = db.journals.filter(j => j.date !== '2025-04-24');
+  if (db.trades.length !== before) saveDB(db);
+}
+
 // ─── SEED DATA ────────────────────────────────────────────────────────────────
-// Populates localStorage on first ever load (empty storage only).
-// Safe to leave in init() — the localStorage check makes it a no-op once seeded.
+// Populates localStorage when there are no trades yet.
 function seedData() {
-  if (localStorage.getItem(STORAGE_KEY)) return;
+  if (getDB().trades.length > 0) return;
 
   saveDB({
     trades: [
       {
-        id: 'tr_20250424_0720_mnq_01',
-        date: '2025-04-24', time: '07:20',
+        id: 'tr_20260424_0720_mnq_01',
+        date: '2026-04-24', time: '07:20',
         symbol: 'MNQ', direction: 'long',
         entry: 27213.5, exit: 27247.7, size: 5, tickValue: 2, pnl: 288.70,
         setup: 'ICT 1hr FVG + London High SMT divergence', timeframe: '1h',
@@ -1279,8 +1294,8 @@ function seedData() {
         diff: 'Slow down on order entry. Pre-set TP before entering. Confirm direction before clicking. A breakeven stop is protection — don\'t need to panic.',
       },
       {
-        id: 'tr_20250424_0735_mnq_02',
-        date: '2025-04-24', time: '07:35',
+        id: 'tr_20260424_0735_mnq_02',
+        date: '2026-04-24', time: '07:35',
         symbol: 'MNQ', direction: 'long',
         entry: 27203, exit: 27194, size: 5, tickValue: 2, pnl: -90.00,
         setup: 'ICT 1hr FVG re-entry', timeframe: '1h',
@@ -1290,8 +1305,8 @@ function seedData() {
         diff: 'Never use stop-limit orders at a key level in fast market conditions. Use stop-market, or wait for sweep confirmation before entering.',
       },
       {
-        id: 'tr_20250424_0741_mnq_03',
-        date: '2025-04-24', time: '07:41',
+        id: 'tr_20260424_0741_mnq_03',
+        date: '2026-04-24', time: '07:41',
         symbol: 'MNQ', direction: 'long',
         entry: 27218.75, exit: 27244.00, size: 5, tickValue: 2, pnl: 252.50,
         setup: 'ICT 4hr draw + 1hr FVG re-entry after manipulation sweep', timeframe: '1h',
@@ -1303,7 +1318,7 @@ function seedData() {
     ],
     journals: [
       {
-        date: '2025-04-24',
+        date: '2026-04-24',
         mood: 'good', sleep: 'poor', dayrating: '3',
         personal: 'Tired from a late Thursday night out. Kevin had some stuff going on with Valerie — ended up at Ryan\'s, didn\'t make it to Ben\'s until late. Nearing the end of school. Tired but feeling pretty good overall.',
         bias: 'bullish', conf: 'med',
@@ -1324,8 +1339,7 @@ function seedData() {
 }
 
 // ─── REMOTE SYNC ──────────────────────────────────────────────────────────────
-// Fetches data.json (committed to the repo) and merges any trades/journals not
-// already in localStorage. Never overwrites locally-entered data.
+// Fetches data.json and merges any trades/journals not already in localStorage.
 async function syncFromRemote() {
   try {
     const res = await fetch('./data.json?t=' + Date.now());
@@ -1353,6 +1367,7 @@ async function syncFromRemote() {
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 function init() {
+  migrateData();
   seedData();
   render();
   syncFromRemote();
