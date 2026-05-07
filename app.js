@@ -1061,7 +1061,7 @@ function renderTradeModal(prefillDate, existingTrade) {
                 oninput="this.value=this.value.toUpperCase()">
             </div>
             <div class="field"><label>Direction</label>
-              <select id="f-direction">
+              <select id="f-direction" onchange="updatePnlPreview()">
                 <option value="long"  ${t.direction==='long' ?'selected':''}>Long</option>
                 <option value="short" ${t.direction==='short'?'selected':''}>Short</option>
               </select>
