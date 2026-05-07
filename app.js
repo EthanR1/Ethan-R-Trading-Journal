@@ -1,16 +1,22 @@
 /* ============================================================
    TradeLog — app.js
-   Static GitHub Pages trade journal. All data stored in
-   localStorage under the key STORAGE_KEY.
+   Static GitHub Pages trade journal. Data stored in
+   localStorage, organized by account.
    ============================================================ */
 
 'use strict';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const STORAGE_KEY = 'tradelog_v1';
+const ACCOUNTS_KEY    = 'tradelog_accounts';
+const ACTIVE_ACCT_KEY = 'tradelog_active_account';
+const LEGACY_KEY      = 'tradelog_v1';
+
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January','February','March','April','May','June',
                 'July','August','September','October','November','December'];
+
+const SYMBOLS     = ['MES', 'ES', 'MNQ', 'NQ'];
+const SYMBOL_TICK = { MES: 5, ES: 50, MNQ: 2, NQ: 20 };
 
 const MISTAKE_LABELS = {
   none:        'No mistake',
@@ -29,33 +35,133 @@ const MISTAKE_LABELS = {
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 const state = {
-  view: 'calendar',           // 'calendar' | 'day' | 'stats'
+  view: 'calendar',
+  accountId: null,
   calYear:  new Date().getFullYear(),
-  calMonth: new Date().getMonth(), // 0-indexed
-  selectedDate: null,         // 'YYYY-MM-DD'
-  modal: null,                // null | 'add-trade' | 'edit-trade' | 'journal'
-  editingId: null,
+  calMonth: new Date().getMonth(),
+  selectedDate: null,
   expandedTradeId: null,
 };
+
+// ─── ACCOUNT LAYER ────────────────────────────────────────────────────────────
+function loadAccounts() {
+  try {
+    const raw = localStorage.getItem(ACCOUNTS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return [];
+}
+
+function saveAccounts(accounts) {
+  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
+function acctKey(id) {
+  return 'tradelog_acct_' + id;
+}
+
+function createAccount(name) {
+  const accounts = loadAccounts();
+  const id = 'acct_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5);
+  const account = { id, name, createdAt: todayStr() };
+  accounts.push(account);
+  saveAccounts(accounts);
+  localStorage.setItem(acctKey(id), JSON.stringify({ trades: [], journals: [] }));
+  return account;
+}
+
+function deleteAccount(id) {
+  const accounts = loadAccounts();
+  if (accounts.length <= 1) { showToast('Cannot delete the only account', true); return; }
+  if (!confirm('Delete this account and ALL its trades? This cannot be undone.')) return;
+  const filtered = accounts.filter(a => a.id !== id);
+  saveAccounts(filtered);
+  localStorage.removeItem(acctKey(id));
+  if (state.accountId === id) {
+    state.accountId = filtered[0].id;
+    localStorage.setItem(ACTIVE_ACCT_KEY, state.accountId);
+    state.view = 'calendar';
+  }
+  render();
+}
+
+function renameAccount(id) {
+  const accounts = loadAccounts();
+  const acc = accounts.find(a => a.id === id);
+  if (!acc) return;
+  const name = prompt('Rename account:', acc.name);
+  if (name && name.trim()) {
+    acc.name = name.trim();
+    saveAccounts(accounts);
+    render();
+  }
+}
+
+function promptNewAccount() {
+  const name = prompt('Account name (e.g. "Apex $50k #2"):');
+  if (!name || !name.trim()) return;
+  const acc = createAccount(name.trim());
+  switchAccount(acc.id);
+  showToast('Account created ✓');
+}
+
+function switchAccount(id) {
+  state.accountId = id;
+  state.expandedTradeId = null;
+  state.view = 'calendar';
+  state.selectedDate = null;
+  localStorage.setItem(ACTIVE_ACCT_KEY, id);
+  render();
+}
+
+function migrateToAccounts() {
+  const existing = loadAccounts();
+  if (existing.length > 0) {
+    const saved = localStorage.getItem(ACTIVE_ACCT_KEY);
+    state.accountId = (saved && existing.find(a => a.id === saved)) ? saved : existing[0].id;
+    return;
+  }
+  // Check for legacy data and carry over any real (non-sample) trades
+  let legacyData = { trades: [], journals: [] };
+  const raw = localStorage.getItem(LEGACY_KEY);
+  if (raw) {
+    try { legacyData = JSON.parse(raw); } catch (e) {}
+  }
+  const sampleIds = new Set([
+    'tr_20260424_0720_mnq_01','tr_20260424_0735_mnq_02','tr_20260424_0741_mnq_03',
+    'tr_20250424_0720_mnq_01','tr_20250424_0735_mnq_02','tr_20250424_0741_mnq_03',
+  ]);
+  const realTrades   = (legacyData.trades   || []).filter(t => !sampleIds.has(t.id));
+  const realJournals = (legacyData.journals || []).filter(j =>
+    j.date !== '2026-04-24' && j.date !== '2025-04-24');
+
+  const acc = createAccount('Account 1');
+  if (realTrades.length > 0 || realJournals.length > 0) {
+    localStorage.setItem(acctKey(acc.id), JSON.stringify({ trades: realTrades, journals: realJournals }));
+    if (realTrades.length > 0) showToast('Existing trades migrated to Account 1 ✓');
+  }
+  state.accountId = acc.id;
+  localStorage.setItem(ACTIVE_ACCT_KEY, acc.id);
+}
 
 // ─── DATA LAYER ───────────────────────────────────────────────────────────────
 function loadDB() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(acctKey(state.accountId));
     if (raw) return JSON.parse(raw);
-  } catch (e) { /* ignore */ }
+  } catch (e) {}
   return { trades: [], journals: [] };
 }
 
 function saveDB(db) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  localStorage.setItem(acctKey(state.accountId), JSON.stringify(db));
 }
 
 function getDB() { return loadDB(); }
 
 function addTrade(trade) {
   const db = getDB();
-  trade.id = 'tr_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+  trade.id = 'tr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
   db.trades.push(trade);
   db.trades.sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
   saveDB(db);
@@ -127,6 +233,11 @@ function pnlClass(val) {
   return '';
 }
 
+// Net PnL after fees — used everywhere for display and stats
+function netPnl(t) {
+  return parseFloat((t.pnl - (t.fees || 0)).toFixed(2));
+}
+
 function calcPnl(entry, exit, size, tickValue, direction) {
   const pts = direction === 'short' ? entry - exit : exit - entry;
   return parseFloat((pts * size * tickValue).toFixed(2));
@@ -146,7 +257,7 @@ function getDaysInMonth(year, month) {
 }
 
 function getFirstDayOfMonth(year, month) {
-  return new Date(year, month, 1).getDay(); // 0=Sun
+  return new Date(year, month, 1).getDay();
 }
 
 function isoWeekKey(dateStr) {
@@ -159,24 +270,24 @@ function isoWeekKey(dateStr) {
 }
 
 function monthKey(dateStr) {
-  return dateStr.slice(0, 7); // 'YYYY-MM'
+  return dateStr.slice(0, 7);
 }
 
 function calcStats(trades) {
   if (!trades.length) return { totalPnl:0, winRate:0, wins:0, losses:0, breakeven:0,
     avgWin:0, avgLoss:0, profitFactor:0, bestTrade:null, worstTrade:null };
 
-  const wins  = trades.filter(t => t.pnl > 0);
-  const losses= trades.filter(t => t.pnl < 0);
-  const be    = trades.filter(t => t.pnl === 0);
-  const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
-  const grossWin  = wins.reduce((s, t) => s + t.pnl, 0);
-  const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
-  const avgWin    = wins.length   ? grossWin   / wins.length  : 0;
-  const avgLoss   = losses.length ? grossLoss  / losses.length: 0;
-  const winRate   = Math.round(wins.length / trades.length * 100);
+  const wins   = trades.filter(t => netPnl(t) > 0);
+  const losses = trades.filter(t => netPnl(t) < 0);
+  const be     = trades.filter(t => netPnl(t) === 0);
+  const totalPnl    = trades.reduce((s, t) => s + netPnl(t), 0);
+  const grossWin    = wins.reduce((s, t) => s + netPnl(t), 0);
+  const grossLoss   = Math.abs(losses.reduce((s, t) => s + netPnl(t), 0));
+  const avgWin      = wins.length   ? grossWin  / wins.length   : 0;
+  const avgLoss     = losses.length ? grossLoss / losses.length : 0;
+  const winRate     = Math.round(wins.length / trades.length * 100);
   const profitFactor = grossLoss > 0 ? parseFloat((grossWin / grossLoss).toFixed(2)) : '∞';
-  const sorted = [...trades].sort((a, b) => a.pnl - b.pnl);
+  const sorted = [...trades].sort((a, b) => netPnl(a) - netPnl(b));
   return {
     totalPnl: parseFloat(totalPnl.toFixed(2)),
     winRate, wins: wins.length, losses: losses.length, breakeven: be.length,
@@ -200,10 +311,13 @@ function groupBy(trades, keyFn) {
 
 function exportJSON() {
   const db = getDB();
+  const accounts = loadAccounts();
+  const acc = accounts.find(a => a.id === state.accountId);
+  const slug = (acc?.name || 'backup').replace(/\s+/g, '-').toLowerCase();
   const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'tradelog-backup.json';
+  a.download = `tradelog-${slug}-backup.json`;
   a.click();
 }
 
@@ -213,7 +327,8 @@ function importJSON(file) {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.trades || !data.journals) throw new Error('Invalid format');
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      if (!confirm('This will replace all data in the current account. Continue?')) return;
+      saveDB(data);
       showToast('Data imported ✓');
       render();
     } catch (err) {
@@ -225,14 +340,14 @@ function importJSON(file) {
 
 function exportCSV() {
   const trades = getAllTrades();
-  const rows = ['Date,Time,Symbol,Direction,Entry,Exit,Size,Tick Value,PnL,Setup,Timeframe,Setup Grade,Exec Grade,Mistake,Notes'];
+  const rows = ['Date,Time,Symbol,Direction,Entry,Exit,Size,Tick Value,Gross PnL,Fees,Net PnL,Setup,Timeframe,Setup Grade,Exec Grade,Mistake,Notes'];
   trades.forEach(t => {
     rows.push([
       t.date, t.time, t.symbol, t.direction,
-      t.entry, t.exit, t.size, t.tickValue, t.pnl,
-      `"${(t.setup||'').replace(/"/g,'""')}"`,
+      t.entry, t.exit, t.size, t.tickValue, t.pnl, (t.fees || 0), netPnl(t),
+      `"${(t.setup  || '').replace(/"/g, '""')}"`,
       t.timeframe, t.setupGrade, t.execGrade, t.mistake,
-      `"${(t.notes||'').replace(/"/g,'""')}"`,
+      `"${(t.notes || '').replace(/"/g, '""')}"`,
     ].join(','));
   });
   const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
@@ -253,36 +368,27 @@ function showToast(msg, isError = false) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
 }
 
-// ─── RENDER HELPERS ───────────────────────────────────────────────────────────
-function h(tag, attrs = {}, ...children) {
-  const el = document.createElement(tag);
-  Object.entries(attrs).forEach(([k, v]) => {
-    if (k === 'className') el.className = v;
-    else if (k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(), v);
-    else el.setAttribute(k, v);
-  });
-  children.flat().forEach(c => {
-    if (c === null || c === undefined) return;
-    el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
-  });
-  return el;
-}
-
-function setHTML(id, html) {
-  const el = document.getElementById(id);
-  if (el) el.innerHTML = html;
-}
-
 // ─── TOPBAR ───────────────────────────────────────────────────────────────────
 function renderTopbar() {
+  const accounts = loadAccounts();
+  const acctOptions = accounts.map(a =>
+    `<option value="${a.id}" ${a.id === state.accountId ? 'selected' : ''}>${a.name}</option>`
+  ).join('');
+
   return `
     <div class="topbar">
       <div class="logo">TRADE<span>LOG</span></div>
+      <div class="acct-bar">
+        <select class="acct-select" onchange="switchAccount(this.value)">${acctOptions}</select>
+        <button class="acct-add" onclick="promptNewAccount()" title="New account">+</button>
+      </div>
       <div class="nav-tabs">
         <button class="nav-tab ${state.view === 'calendar' ? 'active' : ''}"
           onclick="navigate('calendar')">Calendar</button>
         <button class="nav-tab ${state.view === 'stats' ? 'active' : ''}"
           onclick="navigate('stats')">Stats</button>
+        <button class="nav-tab ${state.view === 'accounts' ? 'active' : ''}"
+          onclick="navigate('accounts')">Accounts</button>
       </div>
       <div class="topbar-right">
         <button class="btn btn-primary btn-sm" onclick="openAddTrade()">+ Add Trade</button>
@@ -303,13 +409,11 @@ function renderCalendar() {
   const db = getDB();
   const trades = db.trades;
 
-  // Build per-day lookups
   const dayMap = {};
   trades.forEach(t => {
-    if (!dayMap[t.date]) dayMap[t.date] = { pnl: 0, count: 0, trades: [] };
-    dayMap[t.date].pnl += t.pnl;
+    if (!dayMap[t.date]) dayMap[t.date] = { pnl: 0, count: 0 };
+    dayMap[t.date].pnl   += netPnl(t);
     dayMap[t.date].count++;
-    dayMap[t.date].trades.push(t);
   });
 
   const journalMap = {};
@@ -318,19 +422,15 @@ function renderCalendar() {
   const daysInMonth  = getDaysInMonth(calYear, calMonth);
   const firstDay     = getFirstDayOfMonth(calYear, calMonth);
   const today        = todayStr();
-
-  // Prev month days to fill
   const prevMonthDays = getDaysInMonth(calYear, calMonth - 1 < 0 ? 11 : calMonth - 1);
 
   let cells = '';
 
-  // Empty cells before month start
   for (let i = 0; i < firstDay; i++) {
     const d = prevMonthDays - firstDay + 1 + i;
     cells += `<div class="cal-cell other-month"><span class="cal-date">${d}</span></div>`;
   }
 
-  // Days of month
   for (let d = 1; d <= daysInMonth; d++) {
     const mm  = String(calMonth + 1).padStart(2, '0');
     const dd  = String(d).padStart(2, '0');
@@ -339,8 +439,7 @@ function renderCalendar() {
     const isToday = key === today;
 
     let pnlHtml = '';
-    let dotHtml  = '';
-    let cls      = 'cal-cell';
+    let cls     = 'cal-cell';
     if (isToday) cls += ' today';
 
     const journal = journalMap[key];
@@ -370,7 +469,6 @@ function renderCalendar() {
       </div>`;
   }
 
-  // Fill remaining cells
   const totalCells = firstDay + daysInMonth;
   const remainder  = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
   for (let i = 1; i <= remainder; i++) {
@@ -399,11 +497,11 @@ function renderPsychCard(j, dateStr) {
   const sleepMap = { terrible:'Terrible 😴', poor:'Poor 😪', okay:'Okay 😑', good:'Good 😌', great:'Great ⚡' };
   const ratingMap = { 1:'💀 1/5', 2:'😓 2/5', 3:'😐 3/5', 4:'😊 4/5', 5:'🏆 5/5' };
   const rulesMap = {
-    all:     { label: 'Followed all rules',           cls: 'psych-good' },
-    mostly:  { label: 'Mostly followed rules',        cls: 'psych-ok'   },
-    some:    { label: 'Broke a few rules',             cls: 'psych-warn' },
-    several: { label: 'Broke several rules',           cls: 'psych-bad'  },
-    revenge: { label: 'Went off-plan / revenge traded', cls: 'psych-bad' },
+    all:     { label: 'Followed all rules',             cls: 'psych-good' },
+    mostly:  { label: 'Mostly followed rules',          cls: 'psych-ok'   },
+    some:    { label: 'Broke a few rules',               cls: 'psych-warn' },
+    several: { label: 'Broke several rules',             cls: 'psych-bad'  },
+    revenge: { label: 'Went off-plan / revenge traded', cls: 'psych-bad'  },
   };
   const rules = rulesMap[j.rules];
 
@@ -430,7 +528,7 @@ function renderDay(dateStr) {
   const trades  = getTradesForDate(dateStr);
   const journal = getJournalForDate(dateStr);
   const stats   = calcStats(trades);
-  const total   = trades.reduce((s, t) => s + t.pnl, 0);
+  const total   = trades.reduce((s, t) => s + netPnl(t), 0);
 
   const tradeCards = trades.length
     ? trades.map(t => renderTradeCard(t)).join('')
@@ -480,14 +578,14 @@ function renderDay(dateStr) {
         </div>
         <div class="day-stat">
           <span class="day-stat-label">Best Trade</span>
-          <span class="day-stat-value ${stats.bestTrade ? pnlClass(stats.bestTrade.pnl) : ''}">
-            ${stats.bestTrade ? fmtPnl(stats.bestTrade.pnl) : '—'}
+          <span class="day-stat-value ${stats.bestTrade ? pnlClass(netPnl(stats.bestTrade)) : ''}">
+            ${stats.bestTrade ? fmtPnl(netPnl(stats.bestTrade)) : '—'}
           </span>
         </div>
         <div class="day-stat">
           <span class="day-stat-label">Worst Trade</span>
-          <span class="day-stat-value ${stats.worstTrade ? pnlClass(stats.worstTrade.pnl) : ''}">
-            ${stats.worstTrade && stats.worstTrade.pnl < 0 ? fmtPnl(stats.worstTrade.pnl) : '—'}
+          <span class="day-stat-value ${stats.worstTrade ? pnlClass(netPnl(stats.worstTrade)) : ''}">
+            ${stats.worstTrade && netPnl(stats.worstTrade) < 0 ? fmtPnl(netPnl(stats.worstTrade)) : '—'}
           </span>
         </div>
       </div>
@@ -509,6 +607,7 @@ function renderDay(dateStr) {
 
 function renderTradeCard(t) {
   const isExpanded = state.expandedTradeId === t.id;
+  const net = netPnl(t);
   return `
     <div class="trade-card" id="tc-${t.id}">
       <div class="trade-card-head" onclick="toggleTrade('${t.id}')">
@@ -519,7 +618,7 @@ function renderTradeCard(t) {
         ${t.time ? `<span class="muted text-small">${t.time}</span>` : ''}
         ${t.setupGrade ? `<span class="badge ${gradeClass(t.setupGrade)}" title="Setup">${t.setupGrade}</span>` : ''}
         ${t.execGrade  ? `<span class="badge ${gradeClass(t.execGrade)}"  title="Exec">${t.execGrade}</span>`  : ''}
-        <span class="trade-pnl ${pnlClass(t.pnl)}">${fmtPnl(t.pnl)}</span>
+        <span class="trade-pnl ${pnlClass(net)}">${fmtPnl(net)}</span>
       </div>
       <div class="trade-card-body ${isExpanded ? 'open' : ''}">
         <div class="trade-detail-grid">
@@ -533,7 +632,21 @@ function renderTradeCard(t) {
           </div>
           <div class="trade-detail-item">
             <div class="tdl">Size</div>
-            <div class="tdv">${t.size} × $${t.tickValue}</div>
+            <div class="tdv">${t.size} × $${t.tickValue}/pt</div>
+          </div>
+          <div class="trade-detail-item">
+            <div class="tdl">Gross PnL</div>
+            <div class="tdv ${pnlClass(t.pnl)}">${fmtPnl(t.pnl)}</div>
+          </div>
+          <div class="trade-detail-item">
+            <div class="tdl">Fees</div>
+            <div class="tdv" style="color:${t.fees ? 'var(--red)' : 'var(--text3)'}">
+              ${t.fees ? '−$' + Number(t.fees).toFixed(2) : '—'}
+            </div>
+          </div>
+          <div class="trade-detail-item">
+            <div class="tdl">Net PnL</div>
+            <div class="tdv ${pnlClass(net)}">${fmtPnl(net)}</div>
           </div>
           ${t.setup ? `<div class="trade-detail-item" style="grid-column:span 2">
             <div class="tdl">Setup</div>
@@ -569,9 +682,9 @@ function renderTradeCard(t) {
 }
 
 function renderJournalPreview(j) {
-  const moodMap = { rough:'😤', off:'😟', neutral:'😐', good:'🙂', locked:'🔥' };
-  const sleepMap= { terrible:'Terrible', poor:'Poor', okay:'Okay', good:'Good', great:'Great' };
-  const biasMap = { bullish:'Bullish', bearish:'Bearish', neutral:'Neutral', volatile:'High Vol' };
+  const moodMap  = { rough:'😤', off:'😟', neutral:'😐', good:'🙂', locked:'🔥' };
+  const sleepMap = { terrible:'Terrible', poor:'Poor', okay:'Okay', good:'Good', great:'Great' };
+  const biasMap  = { bullish:'Bullish', bearish:'Bearish', neutral:'Neutral', volatile:'High Vol' };
   const ratingMap = {1:'💀',2:'😓',3:'😐',4:'😊',5:'🏆'};
 
   const tags = [
@@ -657,7 +770,7 @@ function renderStats() {
 
 function getBestDay(trades) {
   const dayMap = {};
-  trades.forEach(t => { dayMap[t.date] = (dayMap[t.date] || 0) + t.pnl; });
+  trades.forEach(t => { dayMap[t.date] = (dayMap[t.date] || 0) + netPnl(t); });
   const vals = Object.values(dayMap);
   if (!vals.length) return '—';
   const best = Math.max(...vals);
@@ -666,7 +779,7 @@ function getBestDay(trades) {
 
 function getWorstDay(trades) {
   const dayMap = {};
-  trades.forEach(t => { dayMap[t.date] = (dayMap[t.date] || 0) + t.pnl; });
+  trades.forEach(t => { dayMap[t.date] = (dayMap[t.date] || 0) + netPnl(t); });
   const vals = Object.values(dayMap);
   if (!vals.length) return '—';
   const worst = Math.min(...vals);
@@ -680,10 +793,9 @@ function renderEquityCurve(trades) {
       <div class="empty-state" style="padding:30px 0;"><div class="empty-text">Log at least 2 trades to see your equity curve</div></div>
     </div>`;
 
-  // Build cumulative PnL by date
   const sorted = [...trades].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
   let cum = 0;
-  const points = sorted.map(t => { cum += t.pnl; return { date: t.date, cum: parseFloat(cum.toFixed(2)) }; });
+  const points = sorted.map(t => { cum += netPnl(t); return { date: t.date, cum: parseFloat(cum.toFixed(2)) }; });
 
   const W = 900, H = 200, PAD = { top:16, right:16, bottom:24, left:56 };
   const minY = Math.min(0, ...points.map(p => p.cum));
@@ -698,12 +810,10 @@ function renderEquityCurve(trades) {
   const linePoints = points.map((p, i) => `${xPos(i).toFixed(1)},${yPos(p.cum).toFixed(1)}`).join(' ');
   const areaPoints = `${xPos(0).toFixed(1)},${zeroY.toFixed(1)} ` + linePoints + ` ${xPos(points.length-1).toFixed(1)},${zeroY.toFixed(1)}`;
 
-  // Y axis labels
   const yTicks = [minY, minY + rangeY * 0.5, maxY].map(v => ({
     v, y: yPos(v), label: fmtPnl(v, false)
   }));
 
-  // Zero line
   const zeroLine = `<line x1="${PAD.left}" y1="${zeroY}" x2="${W - PAD.right}" y2="${zeroY}" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="4,4"/>`;
 
   const finalPnl = points[points.length - 1].cum;
@@ -741,9 +851,9 @@ function renderBreakdownTable(trades, type) {
   const keys   = Object.keys(groups).sort().reverse();
 
   const rows = keys.map(k => {
-    const ts = groups[k];
-    const s  = calcStats(ts);
-    const pnl = ts.reduce((acc, t) => acc + t.pnl, 0);
+    const ts  = groups[k];
+    const s   = calcStats(ts);
+    const pnl = ts.reduce((acc, t) => acc + netPnl(t), 0);
     let label = k;
     if (type === 'monthly') {
       const [y, m] = k.split('-');
@@ -776,13 +886,13 @@ function renderSetupStats(trades) {
     const key = t.setup || 'Untagged';
     if (!map[key]) map[key] = { trades: [], pnl: 0 };
     map[key].trades.push(t);
-    map[key].pnl += t.pnl;
+    map[key].pnl += netPnl(t);
   });
 
   return Object.entries(map)
     .sort((a, b) => b[1].pnl - a[1].pnl)
     .map(([setup, d]) => {
-      const wins = d.trades.filter(t => t.pnl > 0).length;
+      const wins = d.trades.filter(t => netPnl(t) > 0).length;
       const wr   = Math.round(wins / d.trades.length * 100);
       return `
         <div style="margin-bottom:12px;">
@@ -824,11 +934,70 @@ function renderMistakeBreakdown(trades) {
     </div>`).join('');
 }
 
+// ─── ACCOUNTS VIEW ────────────────────────────────────────────────────────────
+function renderAccounts() {
+  const accounts = loadAccounts();
+
+  const cards = accounts.map(acc => {
+    let db = { trades: [], journals: [] };
+    try {
+      const raw = localStorage.getItem(acctKey(acc.id));
+      if (raw) db = JSON.parse(raw);
+    } catch (e) {}
+
+    const trades    = db.trades || [];
+    const totalNet  = trades.reduce((s, t) => s + netPnl(t), 0);
+    const dates     = trades.map(t => t.date).sort();
+    const dateRange = dates.length
+      ? (dates[0] === dates[dates.length - 1]
+          ? fmtShortDate(dates[0])
+          : fmtShortDate(dates[0]) + ' – ' + fmtShortDate(dates[dates.length - 1]))
+      : 'No trades yet';
+    const isActive = acc.id === state.accountId;
+
+    return `
+      <div class="acct-card ${isActive ? 'acct-card-active' : ''}">
+        <div class="acct-card-left">
+          ${isActive ? '<span class="acct-active-badge">Active</span>' : ''}
+          <div class="acct-card-name">${acc.name}</div>
+          <div class="acct-card-meta">${dateRange} · ${trades.length} trade${trades.length !== 1 ? 's' : ''}</div>
+        </div>
+        <div class="acct-card-right">
+          <div class="acct-card-pnl ${trades.length ? pnlClass(totalNet) : ''}">${trades.length ? fmtPnl(totalNet) : '—'}</div>
+          <div class="acct-card-actions">
+            ${!isActive ? `<button class="btn btn-primary btn-sm" onclick="switchAccount('${acc.id}')">Switch</button>` : ''}
+            <button class="btn btn-ghost btn-sm" onclick="renameAccount('${acc.id}')">Rename</button>
+            ${accounts.length > 1 ? `<button class="btn btn-danger btn-sm" onclick="deleteAccount('${acc.id}')">Delete</button>` : ''}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="view">
+      <div class="accounts-header">
+        <span class="accounts-title">Accounts</span>
+        <button class="btn btn-primary btn-sm" onclick="promptNewAccount()">+ New Account</button>
+      </div>
+      <div class="accounts-list">${cards}</div>
+    </div>`;
+}
+
 // ─── TRADE MODAL ──────────────────────────────────────────────────────────────
 function renderTradeModal(prefillDate, existingTrade) {
   const t = existingTrade || {};
-  const isEdit = !!existingTrade;
-  const dateVal = t.date || prefillDate || todayStr();
+  const isEdit   = !!existingTrade;
+  const dateVal  = t.date || prefillDate || todayStr();
+
+  // Symbol field: known symbols get select; unknown get "OTHER" + text input
+  const knownSym  = t.symbol && SYMBOLS.includes(t.symbol.toUpperCase());
+  const symSelVal = knownSym ? t.symbol.toUpperCase() : (t.symbol ? 'OTHER' : '');
+  const symOpts   = SYMBOLS.map(s =>
+    `<option value="${s}" ${symSelVal === s ? 'selected' : ''}>${s}</option>`
+  ).join('');
+
+  const gross = (t.entry && t.exit && t.size) ? t.pnl : null;
+  const net   = (gross !== null) ? netPnl(t) : null;
 
   return `
     <div class="modal-overlay" id="modal-overlay" onclick="closeModalOnOverlay(event)">
@@ -841,7 +1010,15 @@ function renderTradeModal(prefillDate, existingTrade) {
           <div class="form-section-label">Basics</div>
           <div class="form-grid g4">
             <div class="field"><label>Symbol</label>
-              <input id="f-symbol" type="text" value="${t.symbol||''}" placeholder="MNQ" style="text-transform:uppercase">
+              <select id="f-symbol-select" onchange="onSymbolChange(this)">
+                <option value="">Select...</option>
+                ${symOpts}
+                <option value="OTHER" ${symSelVal === 'OTHER' ? 'selected' : ''}>Other...</option>
+              </select>
+              <input id="f-symbol-custom" type="text"
+                style="margin-top:4px;${symSelVal === 'OTHER' ? '' : 'display:none'}"
+                placeholder="Symbol" value="${!knownSym && t.symbol ? t.symbol : ''}"
+                oninput="this.value=this.value.toUpperCase()">
             </div>
             <div class="field"><label>Direction</label>
               <select id="f-direction">
@@ -857,24 +1034,40 @@ function renderTradeModal(prefillDate, existingTrade) {
             </div>
           </div>
 
-          <div class="form-grid g4" style="margin-top:12px">
+          <div class="form-grid g4" style="margin-top:10px">
             <div class="field"><label>Entry Price</label>
               <input id="f-entry" type="number" step="0.01" value="${t.entry||''}" placeholder="0.00" oninput="updatePnlPreview()">
             </div>
             <div class="field"><label>Exit Price</label>
               <input id="f-exit" type="number" step="0.01" value="${t.exit||''}" placeholder="0.00" oninput="updatePnlPreview()">
             </div>
-            <div class="field"><label>Size</label>
-              <input id="f-size" type="number" value="${t.size||''}" placeholder="contracts" oninput="updatePnlPreview()">
+            <div class="field"><label>Size (contracts)</label>
+              <input id="f-size" type="number" value="${t.size||''}" placeholder="1" oninput="updatePnlPreview()">
             </div>
-            <div class="field"><label>Tick Value $</label>
-              <input id="f-tick" type="number" step="0.01" value="${t.tickValue||''}" placeholder="2 = MNQ" oninput="updatePnlPreview()">
+            <div class="field"><label>$/Point</label>
+              <input id="f-tick" type="number" step="0.01" value="${t.tickValue||''}" placeholder="e.g. 2 = MNQ" oninput="updatePnlPreview()">
             </div>
           </div>
 
-          <div id="pnl-preview-bar" class="pnl-preview-bar" style="${t.entry&&t.exit&&t.size?'':'display:none'}">
-            <span class="pnl-preview-label">PnL</span>
-            <span class="pnl-preview-value" id="pnl-preview-value"></span>
+          <div class="form-grid g4" style="margin-top:10px">
+            <div class="field"><label>Commission / Fees $</label>
+              <input id="f-fees" type="number" step="0.01" min="0" value="${t.fees||''}" placeholder="0.00" oninput="updatePnlPreview()">
+            </div>
+          </div>
+
+          <div id="pnl-preview-bar" class="pnl-preview-bar" style="${gross !== null ? '' : 'display:none'}">
+            <div class="pnl-preview-item">
+              <span class="pnl-preview-label">Gross</span>
+              <span class="pnl-preview-value ${gross !== null ? pnlClass(gross) : ''}" id="pnl-preview-gross">${gross !== null ? fmtPnl(gross) : ''}</span>
+            </div>
+            <div class="pnl-preview-item">
+              <span class="pnl-preview-label">Fees</span>
+              <span class="pnl-preview-fees" id="pnl-preview-fees">${t.fees ? '−$' + Number(t.fees).toFixed(2) : '$0.00'}</span>
+            </div>
+            <div class="pnl-preview-item">
+              <span class="pnl-preview-label">Net PnL</span>
+              <span class="pnl-preview-value ${net !== null ? pnlClass(net) : ''}" id="pnl-preview-net">${net !== null ? fmtPnl(net) : ''}</span>
+            </div>
           </div>
 
           <div class="form-section-label">Grading</div>
@@ -915,7 +1108,7 @@ function renderTradeModal(prefillDate, existingTrade) {
           <div class="field" style="margin-top:12px"><label>Trade Rationale / Thought Process</label>
             <textarea id="f-notes" placeholder="Why did you take this trade? What did you see?">${t.notes||''}</textarea>
           </div>
-          <div class="field" style="margin-top:12px"><label>Emotions & Execution Notes</label>
+          <div class="field" style="margin-top:12px"><label>Emotions &amp; Execution Notes</label>
             <textarea id="f-emotions" placeholder="How did you feel? Did you follow your rules?">${t.emotions||''}</textarea>
           </div>
           <div class="field" style="margin-top:12px"><label>What Would You Do Differently?</label>
@@ -932,20 +1125,54 @@ function renderTradeModal(prefillDate, existingTrade) {
     </div>`;
 }
 
+function onSymbolChange(sel) {
+  const custom = document.getElementById('f-symbol-custom');
+  if (!sel || !custom) return;
+  const isOther = sel.value === 'OTHER' || sel.value === '';
+  custom.style.display = isOther ? 'block' : 'none';
+  if (!isOther && SYMBOL_TICK[sel.value]) {
+    const tickInput = document.getElementById('f-tick');
+    if (tickInput && !tickInput.value) {
+      tickInput.value = SYMBOL_TICK[sel.value];
+    } else if (tickInput) {
+      tickInput.value = SYMBOL_TICK[sel.value];
+    }
+    updatePnlPreview();
+  }
+}
+
 function updatePnlPreview() {
   const entry = parseFloat(document.getElementById('f-entry')?.value) || 0;
   const exit  = parseFloat(document.getElementById('f-exit')?.value)  || 0;
   const size  = parseFloat(document.getElementById('f-size')?.value)  || 0;
   const tick  = parseFloat(document.getElementById('f-tick')?.value)  || 1;
+  const fees  = parseFloat(document.getElementById('f-fees')?.value)  || 0;
   const dir   = document.getElementById('f-direction')?.value || 'long';
   const bar   = document.getElementById('pnl-preview-bar');
-  const val   = document.getElementById('pnl-preview-value');
-  if (!bar || !val) return;
+  if (!bar) return;
+
   if (!entry || !exit || !size) { bar.style.display = 'none'; return; }
-  const pnl = calcPnl(entry, exit, size, tick, dir);
+
+  const gross = calcPnl(entry, exit, size, tick, dir);
+  const net   = parseFloat((gross - fees).toFixed(2));
+
   bar.style.display = 'flex';
-  val.textContent = fmtPnl(pnl);
-  val.className = 'pnl-preview-value ' + pnlClass(pnl);
+
+  const grossEl = document.getElementById('pnl-preview-gross');
+  const feesEl  = document.getElementById('pnl-preview-fees');
+  const netEl   = document.getElementById('pnl-preview-net');
+
+  if (grossEl) {
+    grossEl.textContent = fmtPnl(gross);
+    grossEl.className = 'pnl-preview-value ' + pnlClass(gross);
+  }
+  if (feesEl) {
+    feesEl.textContent = fees > 0 ? '−$' + fees.toFixed(2) : '$0.00';
+  }
+  if (netEl) {
+    netEl.textContent = fmtPnl(net);
+    netEl.className = 'pnl-preview-value ' + pnlClass(net);
+  }
 }
 
 // ─── JOURNAL MODAL ────────────────────────────────────────────────────────────
@@ -953,13 +1180,13 @@ function renderJournalModal(dateStr) {
   const j = getJournalForDate(dateStr) || {};
 
   const moodOpts = [
-    { v:'rough',  icon:'😤', label:'Rough'     },
-    { v:'off',    icon:'😟', label:'Off'       },
-    { v:'neutral',icon:'😐', label:'Neutral'   },
-    { v:'good',   icon:'🙂', label:'Good'      },
-    { v:'locked', icon:'🔥', label:'Locked In' },
+    { v:'rough',   icon:'😤', label:'Rough'     },
+    { v:'off',     icon:'😟', label:'Off'       },
+    { v:'neutral', icon:'😐', label:'Neutral'   },
+    { v:'good',    icon:'🙂', label:'Good'      },
+    { v:'locked',  icon:'🔥', label:'Locked In' },
   ];
-  const sleepOpts = ['Terrible','Poor','Okay','Good','Great'].map(v => v.toLowerCase());
+  const sleepOpts  = ['Terrible','Poor','Okay','Good','Great'].map(v => v.toLowerCase());
   const ratingOpts = [
     {v:1,icon:'💀'},{v:2,icon:'😓'},{v:3,icon:'😐'},{v:4,icon:'😊'},{v:5,icon:'🏆'}
   ];
@@ -967,9 +1194,8 @@ function renderJournalModal(dateStr) {
   const moodBtns = moodOpts.map(o => `
     <div class="mood-btn ${j.mood===o.v?'mood-selected':''}" data-mood="${o.v}"
       onclick="selectPick('mood',this)"
-      style="flex:1;background:var(--bg2);border:1px solid ${j.mood===o.v?'var(--amber)':'var(--border)'};
-      border-radius:var(--r);padding:7px 4px;cursor:pointer;text-align:center;
-      background:${j.mood===o.v?'var(--amber-d)':'var(--bg2)'}">
+      style="flex:1;background:${j.mood===o.v?'var(--amber-d)':'var(--bg2)'};border:1px solid ${j.mood===o.v?'var(--amber)':'var(--border)'};
+      padding:7px 4px;cursor:pointer;text-align:center;">
       <div style="font-size:18px;margin-bottom:2px">${o.icon}</div>
       <div style="font-size:10px;color:var(--text2)">${o.label}</div>
     </div>`).join('');
@@ -978,7 +1204,7 @@ function renderJournalModal(dateStr) {
     <div class="sleep-btn ${j.sleep===v?'sleep-selected':''}" data-sleep="${v}"
       onclick="selectPick('sleep',this)"
       style="flex:1;background:var(--bg2);border:1px solid ${j.sleep===v?'var(--blue)':'var(--border)'};
-      border-radius:var(--r);padding:6px 4px;cursor:pointer;text-align:center;
+      padding:6px 4px;cursor:pointer;text-align:center;
       font-size:11px;color:${j.sleep===v?'var(--blue)':'var(--text2)'}">
       ${v.charAt(0).toUpperCase()+v.slice(1)}
     </div>`).join('');
@@ -986,9 +1212,8 @@ function renderJournalModal(dateStr) {
   const ratingBtns = ratingOpts.map(o => `
     <div class="rating-btn" data-rating="${o.v}"
       onclick="selectPick('rating',this)"
-      style="flex:1;background:var(--bg2);border:1px solid ${+j.dayrating===o.v?'var(--amber)':'var(--border)'};
-      border-radius:var(--r);padding:7px 4px;cursor:pointer;text-align:center;
-      background:${+j.dayrating===o.v?'var(--amber-d)':'var(--bg2)'}">
+      style="flex:1;background:${+j.dayrating===o.v?'var(--amber-d)':'var(--bg2)'};border:1px solid ${+j.dayrating===o.v?'var(--amber)':'var(--border)'};
+      padding:7px 4px;cursor:pointer;text-align:center;">
       <div style="font-size:18px;margin-bottom:2px">${o.icon}</div>
       <div style="font-size:10px;color:var(--text2)">${o.v}</div>
     </div>`).join('');
@@ -1006,7 +1231,7 @@ function renderJournalModal(dateStr) {
         </div>
         <div class="modal-body">
 
-          <div class="form-section-label">Personal & Mindset</div>
+          <div class="form-section-label">Personal &amp; Mindset</div>
           <div style="margin-bottom:12px">
             <label style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.07em;display:block;margin-bottom:6px">Mood</label>
             <div id="mood-group" style="display:flex;gap:6px">${moodBtns}</div>
@@ -1078,19 +1303,17 @@ function renderJournalModal(dateStr) {
     </div>`;
 }
 
-// Track selected picks in journal modal
 const modalPicks = { mood: '', sleep: '', rating: '' };
 
 function selectPick(type, el) {
-  const attr = { mood:'data-mood', sleep:'data-sleep', rating:'data-rating' }[type];
+  const attr    = { mood:'data-mood', sleep:'data-sleep', rating:'data-rating' }[type];
   const groupId = { mood:'mood-group', sleep:'sleep-group', rating:'rating-group' }[type];
-  const group = document.getElementById(groupId);
+  const group   = document.getElementById(groupId);
   if (!group) return;
 
   const isAmber  = type === 'mood' || type === 'rating';
   const selColor = isAmber ? 'var(--amber)' : 'var(--blue)';
   const selBg    = isAmber ? 'var(--amber-d)' : 'rgba(96,165,250,0.1)';
-  const selText  = isAmber ? '' : 'var(--blue)';
 
   group.querySelectorAll('[data-mood],[data-sleep],[data-rating]').forEach(b => {
     b.style.borderColor = 'var(--border)';
@@ -1100,7 +1323,7 @@ function selectPick(type, el) {
 
   el.style.borderColor = selColor;
   el.style.background  = selBg;
-  if (type === 'sleep') el.style.color = selText;
+  if (type === 'sleep') el.style.color = selColor;
 
   modalPicks[type] = el.getAttribute(attr);
 }
@@ -1108,13 +1331,13 @@ function selectPick(type, el) {
 function saveJournalForm(dateStr) {
   const g = id => document.getElementById(id)?.value?.trim() || '';
   const journal = {
-    date: dateStr,
-    mood: modalPicks.mood || '',
-    sleep: modalPicks.sleep || '',
-    dayrating: modalPicks.rating || '',
+    date:        dateStr,
+    mood:        modalPicks.mood   || '',
+    sleep:       modalPicks.sleep  || '',
+    dayrating:   modalPicks.rating || '',
     personal:    g('j-personal'),
-    bias:        document.getElementById('j-bias')?.value || '',
-    conf:        document.getElementById('j-conf')?.value || '',
+    bias:        document.getElementById('j-bias')?.value  || '',
+    conf:        document.getElementById('j-conf')?.value  || '',
     morning:     g('j-morning'),
     levels:      g('j-levels'),
     setups:      g('j-setups'),
@@ -1151,12 +1374,11 @@ function openEditTrade(id) {
 function openJournalModal(dateStr) {
   const modalRoot = document.getElementById('modal-root');
   modalRoot.innerHTML = renderJournalModal(dateStr);
-  // Restore picks from existing journal
   const j = getJournalForDate(dateStr);
   if (j) {
-    modalPicks.mood   = j.mood     || '';
-    modalPicks.sleep  = j.sleep    || '';
-    modalPicks.rating = j.dayrating|| '';
+    modalPicks.mood   = j.mood      || '';
+    modalPicks.sleep  = j.sleep     || '';
+    modalPicks.rating = j.dayrating || '';
   } else {
     modalPicks.mood = modalPicks.sleep = modalPicks.rating = '';
   }
@@ -1171,11 +1393,16 @@ function closeModalOnOverlay(e) {
 }
 
 function saveTrade(editId) {
-  const symbol = document.getElementById('f-symbol')?.value?.trim()?.toUpperCase();
+  const symSel = document.getElementById('f-symbol-select')?.value;
+  const symbol = symSel === 'OTHER' || symSel === ''
+    ? document.getElementById('f-symbol-custom')?.value?.trim()?.toUpperCase()
+    : symSel;
   const entry  = parseFloat(document.getElementById('f-entry')?.value);
   const exit   = parseFloat(document.getElementById('f-exit')?.value);
   const size   = parseFloat(document.getElementById('f-size')?.value);
   const tick   = parseFloat(document.getElementById('f-tick')?.value) || 1;
+  const fees   = parseFloat(document.getElementById('f-fees')?.value) || 0;
+
   if (!symbol || !entry || !exit || !size) {
     showToast('Fill in symbol, prices, and size', true);
     return;
@@ -1186,7 +1413,7 @@ function saveTrade(editId) {
   const trade = {
     date:       document.getElementById('f-date').value,
     time:       document.getElementById('f-time').value,
-    symbol, direction: dir, entry, exit, size, tickValue: tick, pnl,
+    symbol, direction: dir, entry, exit, size, tickValue: tick, pnl, fees,
     setup:      document.getElementById('f-setup').value.trim(),
     timeframe:  document.getElementById('f-timeframe').value,
     setupGrade: document.getElementById('f-setupgrade').value,
@@ -1255,127 +1482,18 @@ function render() {
   if (state.view === 'calendar') viewHtml = renderCalendar();
   else if (state.view === 'day') viewHtml = renderDay(state.selectedDate || todayStr());
   else if (state.view === 'stats') viewHtml = renderStats();
+  else if (state.view === 'accounts') viewHtml = renderAccounts();
 
   app.innerHTML = renderTopbar() + viewHtml;
   window.scrollTo(0, 0);
 }
 
-// ─── MIGRATE ──────────────────────────────────────────────────────────────────
-// Removes any trades/journals that were seeded with the wrong year (2025).
-function migrateData() {
-  const db = getDB();
-  const badIds = new Set([
-    'tr_20250424_0720_mnq_01',
-    'tr_20250424_0735_mnq_02',
-    'tr_20250424_0741_mnq_03',
-  ]);
-  const before = db.trades.length;
-  db.trades   = db.trades.filter(t => !badIds.has(t.id));
-  db.journals = db.journals.filter(j => j.date !== '2025-04-24');
-  if (db.trades.length !== before) saveDB(db);
-}
-
-// ─── SEED DATA ────────────────────────────────────────────────────────────────
-// Populates localStorage when there are no trades yet.
-function seedData() {
-  if (getDB().trades.length > 0) return;
-
-  saveDB({
-    trades: [
-      {
-        id: 'tr_20260424_0720_mnq_01',
-        date: '2026-04-24', time: '07:20',
-        symbol: 'MNQ', direction: 'long',
-        entry: 27213.5, exit: 27247.7, size: 5, tickValue: 2, pnl: 288.70,
-        setup: 'ICT 1hr FVG + London High SMT divergence', timeframe: '1h',
-        setupGrade: 'A+', execGrade: 'C', mistake: 'fat-finger',
-        notes: 'Identified 1hr FVG on MNQ at 5AM. Manipulation through the gap at market open, waited for rebound and caught the move. Saw bearish SMT divergence from MES at London highs and sold 3 early at 27244. Then fat-fingered a buy at 27253.75 instead of placing limit sell — added 2 contracts by accident. Panic market sold all 4 remaining at 27248.5. NQ was trading ~80bps above MES all morning (risk-on tape) which means the MES SMT signal was weaker than normal — should have accounted for relative strength context before using it as an exit trigger. [Complex execution: 3x exit @27244, 2x accidental buy @27253.75, 4x panic sell @27248.5. Exit shown is blended avg.]',
-        emotions: 'Tired from late Thursday night. Rushed order entry mid-trade. Panicked when size was wrong instead of staying calm and managing it.',
-        diff: 'Slow down on order entry. Pre-set TP before entering. Confirm direction before clicking. A breakeven stop is protection — don\'t need to panic.',
-      },
-      {
-        id: 'tr_20260424_0735_mnq_02',
-        date: '2026-04-24', time: '07:35',
-        symbol: 'MNQ', direction: 'long',
-        entry: 27203, exit: 27194, size: 5, tickValue: 2, pnl: -90.00,
-        setup: 'ICT 1hr FVG re-entry', timeframe: '1h',
-        setupGrade: 'B', execGrade: 'B', mistake: 'order-type',
-        notes: 'Re-entered the same 1hr FVG on a stop-limit order. Price had a massive wick through 27203, stop-limit triggered and filled, then price immediately snapped back up — classic ICT liquidity sweep. The FVG held. Wrong order type for fast futures conditions. Should have used stop-market or waited for a confirmed close back above the sweep candle before re-entering.',
-        emotions: 'Frustrated after Trade 1 execution. Rushed the re-entry without adjusting order type.',
-        diff: 'Never use stop-limit orders at a key level in fast market conditions. Use stop-market, or wait for sweep confirmation before entering.',
-      },
-      {
-        id: 'tr_20260424_0741_mnq_03',
-        date: '2026-04-24', time: '07:41',
-        symbol: 'MNQ', direction: 'long',
-        entry: 27218.75, exit: 27244.00, size: 5, tickValue: 2, pnl: 252.50,
-        setup: 'ICT 4hr draw + 1hr FVG re-entry after manipulation sweep', timeframe: '1h',
-        setupGrade: 'A+', execGrade: 'A', mistake: 'early-exit',
-        notes: 'Waited for price to retrace through the 1hr FVG after a major manipulation move that filled the 4hr draw back to the Jan 26 level. Bought 5 contracts at 27218.75 targeting intraday highs and initial high draw. Sold 3 at 27248.25 (intermediate highs), 1 more at 27256.50, moved final contract to breakeven targeting 27303.25 but it reversed before getting there. FVG bottom still hasn\'t been hit. Chose to take profits and protect the day. [Partial exits: 3x@27248.25, 1x@27256.50, 1x@27218.75 BE — exit shown is blended avg 27244.]',
-        emotions: 'Patient and composed. Best mental state of the three trades. Waited through two losses without revenge trading.',
-        diff: 'When at breakeven on a runner with a clear draw target and no risk on the table, leave it. A BE stop IS your protection — there was no reason to pull the contract early.',
-      },
-    ],
-    journals: [
-      {
-        date: '2026-04-24',
-        mood: 'good', sleep: 'poor', dayrating: '3',
-        personal: 'Tired from a late Thursday night out. Kevin had some stuff going on with Valerie — ended up at Ryan\'s, didn\'t make it to Ben\'s until late. Nearing the end of school. Tired but feeling pretty good overall.',
-        bias: 'bullish', conf: 'med',
-        morning: 'Watching ICT setups today. Still developing my own blend of ICT and Bryce\'s approach — haven\'t locked in the right mix yet. Bias is long — no interest in shorting all-time highs. Fresh $100k funded futures account, getting the hang of the prop firm rules.',
-        levels: '1hr FVG on MNQ identified at 5AM. Early morning highs at 27366 as liquidity target. Bottom of 1hr FVG at 27194 as stop reference. 4hr draw back to Jan 26 level.',
-        setups: 'ICT 1hr FVG on MNQ — manipulation through gap at open, rebound entry targeting early morning highs at 27366.',
-        focus: 'Slow down on order entry. Confirm direction before clicking. Pre-set TP before entering.',
-        intermarket: 'NQ trading ~80bps above MES all morning — tech clearly leading, risk-on tape. Bearish SMT from MES at London highs means less in a session where NQ already has strong relative strength. Need to weigh inter-market context before using SMT as an exit trigger.',
-        pa: 'Classic ICT manipulation sweep on open through the 1hr FVG. 4hr draw to Jan 26 filled. Market respected FVG as support on all three re-entries. Intermediate highs at 27248-27266 as near-term draw. Initial highs at 27366 as the daily target.',
-        strategy: 'ICT framework + early morning high targets working conceptually. Execution is the gap. Need a pre-trade checklist: setup → direction → size → TP placed → then entry. Stop-limit orders dangerous in fast futures conditions — use stop-market or wait for sweep confirmation.',
-        well: 'Read the market correctly on all three trades. Identified the FVG at 5AM before open. Stayed patient between Trade 2\'s loss and Trade 3. Trade 3 was composed and disciplined — best execution of the day. Finished green.',
-        improve: 'Trade 1 — fat-fingered buy instead of placing limit sell, triggered panic sell of 4 contracts. Trade 2 — stop-limit order triggered mid-wick during a liquidity sweep. Both mistakes were mechanical/order entry, not analytical.',
-        lessons: 'Analysis was right on all three trades. The FVG held every time. Execution and order mechanics are the only problem today. (1) Slow down on order entry. (2) Use stop-market not stop-limit in fast conditions. (3) A breakeven stop is already your protection — let runners run. (4) NQ relative strength context must be factored in before using MES SMT as an exit trigger.',
-        rules: 'some',
-      },
-    ],
-  });
-}
-
-// ─── REMOTE SYNC ──────────────────────────────────────────────────────────────
-// Fetches data.json and merges any trades/journals not already in localStorage.
-async function syncFromRemote() {
-  try {
-    const res = await fetch('./data.json?t=' + Date.now());
-    if (!res.ok) return;
-    const remote = await res.json();
-    if (!Array.isArray(remote.trades) || !Array.isArray(remote.journals)) return;
-    const local = getDB();
-    const localIds   = new Set(local.trades.map(t => t.id));
-    const localDates = new Set(local.journals.map(j => j.date));
-    let changed = false;
-    remote.trades.forEach(t => {
-      if (!localIds.has(t.id)) { local.trades.push(t); changed = true; }
-    });
-    remote.journals.forEach(j => {
-      if (!localDates.has(j.date)) { local.journals.push(j); changed = true; }
-    });
-    if (changed) {
-      local.trades.sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
-      saveDB(local);
-      showToast('Trades synced ✓');
-      render();
-    }
-  } catch (e) { /* data.json absent or malformed — silent */ }
-}
-
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 function init() {
-  migrateData();
-  seedData();
+  migrateToAccounts();
   render();
-  syncFromRemote();
 }
 
-// Keyboard shortcut: Escape closes modal
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeModal();
 });
-
-init();
