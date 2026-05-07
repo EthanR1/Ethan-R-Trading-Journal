@@ -18,20 +18,26 @@ const MONTHS = ['January','February','March','April','May','June',
 const SYMBOLS     = ['MES', 'ES', 'MNQ', 'NQ'];
 const SYMBOL_TICK = { MES: 5, ES: 50, MNQ: 2, NQ: 20 };
 
-const SESSIONS = ['pre-market', 'rth-open', 'midday', 'power-hour', 'ah'];
+const SESSIONS = ['closed', 'asia', 'london', 'pre-market', 'rth-open', 'midday', 'power-hour', 'ah'];
 const SESSION_LABELS = {
+  'closed':      'Closed',
+  'asia':        'Asia',
+  'london':      'London',
   'pre-market':  'Pre-Market',
   'rth-open':    'RTH Open',
   'midday':      'Midday',
   'power-hour':  'Power Hour',
-  'ah':          'After Hours',
+  'ah':          'AH',
 };
 const SESSION_FULL = {
-  'pre-market':  'Pre-Market',
-  'rth-open':    'RTH Open (9:30–10:30)',
-  'midday':      'Midday (10:30–2pm)',
-  'power-hour':  'Power Hour (3–4pm)',
-  'ah':          'After Hours',
+  'closed':      'Futures Closed (5–6pm ET)',
+  'asia':        'Asia (6pm–2am ET)',
+  'london':      'London (2am–8:30am ET)',
+  'pre-market':  'Pre-Market (8:30–9:30am ET)',
+  'rth-open':    'RTH Open (9:30–10:30am ET)',
+  'midday':      'Midday (10:30am–3pm ET)',
+  'power-hour':  'Power Hour (3–4pm ET)',
+  'ah':          'After Hours (4–5pm ET)',
 };
 
 const HEATMAP_HOURS = ['Pre', '9:30', '10am', '11am', '12pm', '1pm', '2pm', '3pm', '4+'];
@@ -354,11 +360,14 @@ function detectSession(timeStr) {
   if (!timeStr) return '';
   const [h, m] = timeStr.split(':').map(Number);
   const mins = h * 60 + m;
-  if (mins < 9 * 60 + 30) return 'pre-market';
-  if (mins < 10 * 60 + 30) return 'rth-open';
-  if (mins < 15 * 60)     return 'midday';
-  if (mins < 16 * 60)     return 'power-hour';
-  return 'ah';
+  if (mins >= 17*60 && mins < 18*60) return 'closed';      // 5–6pm  futures maintenance
+  if (mins >= 16*60)                 return 'ah';           // 4–5pm  after hours equity
+  if (mins >= 15*60)                 return 'power-hour';   // 3–4pm
+  if (mins >= 10*60 + 30)            return 'midday';       // 10:30am–3pm
+  if (mins >= 9*60 + 30)             return 'rth-open';     // 9:30–10:30am
+  if (mins >= 8*60 + 30)             return 'pre-market';   // 8:30–9:30am
+  if (mins >= 2*60)                  return 'london';       // 2–8:30am
+  return 'asia';                                            // midnight–2am + 6pm–midnight handled above
 }
 
 function sessionForTrade(t) {
@@ -842,8 +851,9 @@ function renderTradeCard(t, blown = false) {
   const sess = sessionForTrade(t);
   const sessLabel = sess ? SESSION_LABELS[sess] || sess : '';
 
+  const sessCls = `trade-sess-${sess || 'normal'}`;
   return `
-    <div class="trade-card trade-${t.direction}" id="tc-${t.id}">
+    <div class="trade-card ${sessCls}" id="tc-${t.id}">
       <div class="trade-card-head" onclick="toggleTrade('${t.id}')">
         <span class="trade-symbol">${t.symbol}</span>
         <span class="badge ${t.direction === 'long' ? 'badge-long' : 'badge-short'}">

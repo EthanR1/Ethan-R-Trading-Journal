@@ -521,14 +521,18 @@ body {
 .trade-card {
   background: var(--bg1);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--border);
+  border-left: 4px solid var(--border2);
   transition: border-color .15s ease;
 }
-.trade-card.trade-long  { border-left-color: var(--cyan); }
-.trade-card.trade-short { border-left-color: var(--red); }
 .trade-card:hover { border-color: var(--border2); }
-.trade-card.trade-long:hover  { border-left-color: var(--cyan); border-color: var(--border2); }
-.trade-card.trade-short:hover { border-left-color: var(--red);  border-color: var(--border2); }
+
+/* Session-based left border */
+.trade-sess-asia   { border-left-color: var(--blue); }
+.trade-sess-london { border-left-color: var(--red); }
+.trade-sess-closed { border-left-color: #0d1117; }
+/* pre-market, rth-open, midday, power-hour, ah, normal → default border2 */
+.trade-sess-asia:hover,
+.trade-sess-london:hover { border-color: var(--border2); border-left-color: inherit; }
 
 .trade-card-head {
   display: flex;
