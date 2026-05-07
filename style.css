@@ -845,7 +845,65 @@ select option { background: var(--bg2); }
 }
 .acct-card-pnl.pos { color: var(--green); }
 .acct-card-pnl.neg { color: var(--red); }
-.acct-card-actions { display: flex; gap: 6px; }
+.acct-card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.acct-card-badges { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; flex-wrap: wrap; }
+
+.acct-card-blown {
+  border-color: var(--red);
+  background: var(--red-d);
+}
+.acct-card-blown:hover { border-color: var(--red); }
+
+.acct-blown-badge {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--red);
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  display: inline-block;
+  border: 1px solid rgba(255,34,68,.35);
+  padding: 1px 5px;
+  background: var(--red-d);
+}
+
+/* ─── BLOWN BANNER ────────────────────────────────────────────────────────── */
+.blown-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--red-d);
+  border: 1px solid rgba(255,34,68,.35);
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--red);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+.blown-banner strong { color: var(--red); }
+.blown-banner-icon { font-size: 14px; flex-shrink: 0; }
+
+/* Blown indicator in topbar */
+.acct-select-blown { color: var(--red) !important; }
+.blown-topbar-badge {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--red);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  border-left: 1px solid rgba(255,34,68,.25);
+  background: var(--red-d);
+  white-space: nowrap;
+}
+
+/* Rename cursor on account name */
+.acct-card-name { cursor: pointer; }
+.acct-card-name:hover { color: var(--amber); }
 
 /* ─── EMPTY STATE ─────────────────────────────────────────────────────────── */
 .empty-state {

@@ -97,6 +97,29 @@ function renameAccount(id) {
   }
 }
 
+function toggleBlownAccount(id) {
+  const accounts = loadAccounts();
+  const acc = accounts.find(a => a.id === id);
+  if (!acc) return;
+  if (!acc.blown) {
+    if (!confirm(`Mark "${acc.name}" as blown?\n\nThis will lock it to view-only — no new trades can be logged.`)) return;
+    acc.blown = true;
+    acc.blownAt = todayStr();
+  } else {
+    if (!confirm(`Restore "${acc.name}"?\n\nThis will allow trading on it again.`)) return;
+    acc.blown = false;
+    delete acc.blownAt;
+  }
+  saveAccounts(accounts);
+  render();
+}
+
+function isCurrentAccountBlown() {
+  const accounts = loadAccounts();
+  const acc = accounts.find(a => a.id === state.accountId);
+  return acc?.blown === true;
+}
+
 function promptNewAccount() {
   const name = prompt('Account name (e.g. "Apex $50k #2"):');
   if (!name || !name.trim()) return;
@@ -371,15 +394,16 @@ function showToast(msg, isError = false) {
 // ─── TOPBAR ───────────────────────────────────────────────────────────────────
 function renderTopbar() {
   const accounts = loadAccounts();
+  const blown = isCurrentAccountBlown();
   const acctOptions = accounts.map(a =>
-    `<option value="${a.id}" ${a.id === state.accountId ? 'selected' : ''}>${a.name}</option>`
+    `<option value="${a.id}" ${a.id === state.accountId ? 'selected' : ''}>${a.name}${a.blown ? ' (blown)' : ''}</option>`
   ).join('');
 
   return `
     <div class="topbar">
       <div class="logo">TRADE<span>LOG</span></div>
       <div class="acct-bar">
-        <select class="acct-select" onchange="switchAccount(this.value)">${acctOptions}</select>
+        <select class="acct-select ${blown ? 'acct-select-blown' : ''}" onchange="switchAccount(this.value)">${acctOptions}</select>
         <button class="acct-add" onclick="promptNewAccount()" title="New account">+</button>
       </div>
       <div class="nav-tabs">
@@ -391,7 +415,9 @@ function renderTopbar() {
           onclick="navigate('accounts')">Accounts</button>
       </div>
       <div class="topbar-right">
-        <button class="btn btn-primary btn-sm" onclick="openAddTrade()">+ Add Trade</button>
+        ${blown
+          ? `<span class="blown-topbar-badge">BLOWN — VIEW ONLY</span>`
+          : `<button class="btn btn-primary btn-sm" onclick="openAddTrade()">+ Add Trade</button>`}
         <button class="btn btn-ghost btn-sm" onclick="exportCSV()">CSV</button>
         <button class="btn btn-ghost btn-sm" onclick="exportJSON()">Backup</button>
         <label class="btn btn-ghost btn-sm" style="cursor:pointer;">
@@ -477,8 +503,15 @@ function renderCalendar() {
 
   const dowHeaders = DAYS_OF_WEEK.map(d => `<div class="cal-dow">${d}</div>`).join('');
 
+  const blownBanner = isCurrentAccountBlown() ? `
+    <div class="blown-banner">
+      <span class="blown-banner-icon">⛔</span>
+      <span>This account is blown — <strong>view only</strong>. No new trades can be logged.</span>
+    </div>` : '';
+
   return `
     <div class="view">
+      ${blownBanner}
       <div class="cal-header">
         <button class="btn-icon" onclick="prevMonth()">&#8592;</button>
         <span class="cal-month-label">${MONTHS[calMonth]} ${calYear}</span>
@@ -529,13 +562,14 @@ function renderDay(dateStr) {
   const journal = getJournalForDate(dateStr);
   const stats   = calcStats(trades);
   const total   = trades.reduce((s, t) => s + netPnl(t), 0);
+  const blown   = isCurrentAccountBlown();
 
   const tradeCards = trades.length
-    ? trades.map(t => renderTradeCard(t)).join('')
+    ? trades.map(t => renderTradeCard(t, blown)).join('')
     : `<div class="empty-state">
         <div class="empty-icon">📋</div>
         <div class="empty-text">No trades logged for this day</div>
-        <button class="btn btn-primary" style="margin-top:10px" onclick="openAddTrade()">Log a Trade</button>
+        ${!blown ? `<button class="btn btn-primary" style="margin-top:10px" onclick="openAddTrade()">Log a Trade</button>` : ''}
        </div>`;
 
   const journalHtml = journal
@@ -556,7 +590,7 @@ function renderDay(dateStr) {
           <div class="day-title">${fmtDate(dateStr)}</div>
         </div>
         <div style="margin-left:auto;display:flex;gap:8px;">
-          <button class="btn btn-primary btn-sm" onclick="openAddTrade('${dateStr}')">+ Add Trade</button>
+          ${!blown ? `<button class="btn btn-primary btn-sm" onclick="openAddTrade('${dateStr}')">+ Add Trade</button>` : ''}
           <button class="btn btn-ghost btn-sm" onclick="openJournalModal('${dateStr}')">
             ${journal ? 'Edit Journal' : 'Write Journal'}
           </button>
@@ -605,7 +639,7 @@ function renderDay(dateStr) {
     </div>`;
 }
 
-function renderTradeCard(t) {
+function renderTradeCard(t, blown = false) {
   const isExpanded = state.expandedTradeId === t.id;
   const net = netPnl(t);
   return `
@@ -673,10 +707,10 @@ function renderTradeCard(t) {
           <div class="trade-notes-label">Do Differently</div>
           <div class="trade-notes-text">${t.diff}</div>
         </div>` : ''}
-        <div class="trade-actions">
+        ${!blown ? `<div class="trade-actions">
           <button class="btn btn-ghost btn-sm" onclick="openEditTrade('${t.id}')">Edit</button>
           <button class="btn btn-danger btn-sm" onclick="confirmDeleteTrade('${t.id}')">Delete</button>
-        </div>
+        </div>` : ''}
       </div>
     </div>`;
 }
@@ -956,10 +990,13 @@ function renderAccounts() {
     const isActive = acc.id === state.accountId;
 
     return `
-      <div class="acct-card ${isActive ? 'acct-card-active' : ''}">
+      <div class="acct-card ${isActive ? 'acct-card-active' : ''} ${acc.blown ? 'acct-card-blown' : ''}">
         <div class="acct-card-left">
-          ${isActive ? '<span class="acct-active-badge">Active</span>' : ''}
-          <div class="acct-card-name">${acc.name}</div>
+          <div class="acct-card-badges">
+            ${isActive ? '<span class="acct-active-badge">Active</span>' : ''}
+            ${acc.blown ? `<span class="acct-blown-badge">Blown${acc.blownAt ? ' · ' + fmtShortDate(acc.blownAt) : ''}</span>` : ''}
+          </div>
+          <div class="acct-card-name" onclick="renameAccount('${acc.id}')" title="Click to rename">${acc.name}</div>
           <div class="acct-card-meta">${dateRange} · ${trades.length} trade${trades.length !== 1 ? 's' : ''}</div>
         </div>
         <div class="acct-card-right">
@@ -967,6 +1004,9 @@ function renderAccounts() {
           <div class="acct-card-actions">
             ${!isActive ? `<button class="btn btn-primary btn-sm" onclick="switchAccount('${acc.id}')">Switch</button>` : ''}
             <button class="btn btn-ghost btn-sm" onclick="renameAccount('${acc.id}')">Rename</button>
+            <button class="btn ${acc.blown ? 'btn-ghost' : 'btn-danger'} btn-sm" onclick="toggleBlownAccount('${acc.id}')">
+              ${acc.blown ? 'Restore' : 'Mark Blown'}
+            </button>
             ${accounts.length > 1 ? `<button class="btn btn-danger btn-sm" onclick="deleteAccount('${acc.id}')">Delete</button>` : ''}
           </div>
         </div>
