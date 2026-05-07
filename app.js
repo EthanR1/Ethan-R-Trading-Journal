@@ -1490,8 +1490,19 @@ function render() {
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 function init() {
-  migrateToAccounts();
-  render();
+  try {
+    migrateToAccounts();
+    render();
+  } catch (e) {
+    document.getElementById('app').innerHTML =
+      `<div style="padding:40px;color:#ff2244;font-family:monospace;font-size:13px;">
+        <strong>Error initialising TradeLog:</strong><br><br>${e.message}<br><br>
+        <pre style="white-space:pre-wrap;color:#808080">${e.stack}</pre>
+        <br><button onclick="localStorage.clear();location.reload()" style="background:#ff2244;color:#000;border:none;padding:8px 16px;cursor:pointer;font-family:monospace;font-weight:600;">
+          CLEAR STORAGE &amp; RELOAD
+        </button>
+      </div>`;
+  }
 }
 
 document.addEventListener('keydown', e => {
