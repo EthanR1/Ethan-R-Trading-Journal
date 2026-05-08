@@ -874,7 +874,7 @@ function renderTradeCard(t, blown = false) {
               <div class="tdv">${t.entry}</div>
             </div>
             <div class="trade-detail-item">
-              <div class="tdl">Exit</div>
+              <div class="tdl">${t.exitFills && t.exitFills.length > 1 ? 'Avg Exit' : 'Exit'}</div>
               <div class="tdv">${t.exit}</div>
             </div>
             <div class="trade-detail-item">
@@ -884,7 +884,13 @@ function renderTradeCard(t, blown = false) {
             ${t.fills && t.fills.length > 1 ? `<div class="trade-detail-item" style="grid-column:span 3">
               <div class="tdl">Entry Fills</div>
               <div class="fills-breakdown">
-                ${t.fills.map((f, i) => `<span class="fill-chip">Fill ${i+1}: ${f.price} × ${f.size}</span>`).join('')}
+                ${t.fills.map((f, i) => `<span class="fill-chip">E${i+1}: ${f.price} × ${f.size}</span>`).join('')}
+              </div>
+            </div>` : ''}
+            ${t.exitFills && t.exitFills.length > 1 ? `<div class="trade-detail-item" style="grid-column:span 3">
+              <div class="tdl">Exit Fills</div>
+              <div class="fills-breakdown">
+                ${t.exitFills.map((f, i) => `<span class="fill-chip">X${i+1}: ${f.price} × ${f.size}</span>`).join('')}
               </div>
             </div>` : ''}
             <div class="trade-detail-item">
@@ -1592,10 +1598,19 @@ function renderTradeModal(prefillDate, existingTrade) {
             <div class="fill-avg-display" id="fill-avg-display"></div>
           </div>
 
-          <div class="form-grid g4" style="margin-top:10px">
-            <div class="field"><label>Exit Price</label>
-              <input id="f-exit" type="number" step="0.01" value="${t.exit||''}" placeholder="0.00" oninput="updatePnlPreview()">
-            </div>
+          <div class="form-section-label" style="margin-top:14px">Exit Fills</div>
+          <div id="exit-fills-list" class="fills-list">
+            ${(t.exitFills && t.exitFills.length > 0
+              ? t.exitFills
+              : [{ price: t.exit || '', size: t.size || '' }]
+            ).map((f) => exitFillRowHtml(f.price, f.size)).join('')}
+          </div>
+          <div class="fills-footer">
+            <button class="btn btn-ghost btn-sm" onclick="addExitFill()">+ Add Exit</button>
+            <div class="fill-avg-display" id="exit-fill-avg-display"></div>
+          </div>
+
+          <div class="form-grid g2" style="margin-top:10px">
             <div class="field"><label>$/Point</label>
               <input id="f-tick" type="number" step="0.01" value="${t.tickValue||''}" placeholder="e.g. 2 = MNQ" oninput="updatePnlPreview()">
             </div>
@@ -1733,7 +1748,7 @@ function collectFills() {
 }
 
 function updateFillAvg() {
-  const fills  = collectFills();
+  const fills   = collectFills();
   const display = document.getElementById('fill-avg-display');
   if (!display) return;
   if (!fills.length) { display.innerHTML = ''; updatePnlPreview(); return; }
@@ -1741,6 +1756,58 @@ function updateFillAvg() {
   const avgPrice = fills.reduce((s, f) => s + f.price * f.size, 0) / totalQty;
   display.innerHTML =
     `<span class="fill-avg-label">Avg entry</span>` +
+    `<span class="fill-avg-price">${avgPrice.toFixed(2)}</span>` +
+    `<span class="fill-avg-sep">·</span>` +
+    `<span class="fill-avg-qty">${totalQty} contract${totalQty !== 1 ? 's' : ''}</span>`;
+  updatePnlPreview();
+}
+
+function exitFillRowHtml(price, size) {
+  return `<div class="fill-row exit-fill-row">
+    <div class="field" style="flex:2;min-width:0">
+      <label>Price</label>
+      <input type="number" class="exit-fill-price" step="0.01" value="${price||''}" placeholder="0.00" oninput="updateExitFillAvg()">
+    </div>
+    <div class="field" style="flex:1;min-width:0">
+      <label>Contracts</label>
+      <input type="number" class="exit-fill-qty" min="1" value="${size||''}" placeholder="1" oninput="updateExitFillAvg()">
+    </div>
+    <button class="btn-icon fill-remove" onclick="removeExitFill(this)" title="Remove exit">×</button>
+  </div>`;
+}
+
+function addExitFill() {
+  const list = document.getElementById('exit-fills-list');
+  if (!list) return;
+  const div = document.createElement('div');
+  div.innerHTML = exitFillRowHtml('', '');
+  list.appendChild(div.firstElementChild);
+  updateExitFillAvg();
+}
+
+function removeExitFill(btn) {
+  const list = document.getElementById('exit-fills-list');
+  if (!list || list.querySelectorAll('.exit-fill-row').length <= 1) return;
+  btn.closest('.exit-fill-row').remove();
+  updateExitFillAvg();
+}
+
+function collectExitFills() {
+  return [...document.querySelectorAll('#exit-fills-list .exit-fill-row')].map(row => ({
+    price: parseFloat(row.querySelector('.exit-fill-price')?.value) || 0,
+    size:  parseFloat(row.querySelector('.exit-fill-qty')?.value)  || 0,
+  })).filter(f => f.price && f.size);
+}
+
+function updateExitFillAvg() {
+  const fills   = collectExitFills();
+  const display = document.getElementById('exit-fill-avg-display');
+  if (!display) return;
+  if (!fills.length) { display.innerHTML = ''; updatePnlPreview(); return; }
+  const totalQty = fills.reduce((s, f) => s + f.size, 0);
+  const avgPrice = fills.reduce((s, f) => s + f.price * f.size, 0) / totalQty;
+  display.innerHTML =
+    `<span class="fill-avg-label">Avg exit</span>` +
     `<span class="fill-avg-price">${avgPrice.toFixed(2)}</span>` +
     `<span class="fill-avg-sep">·</span>` +
     `<span class="fill-avg-qty">${totalQty} contract${totalQty !== 1 ? 's' : ''}</span>`;
@@ -1777,11 +1844,13 @@ function onTimeChange(input) {
 }
 
 function updatePnlPreview() {
-  const fills = collectFills();
+  const fills     = collectFills();
+  const exitFills = collectExitFills();
   const totalSize = fills.reduce((s, f) => s + f.size, 0);
+  const exitSize  = exitFills.reduce((s, f) => s + f.size, 0);
   const entry = totalSize ? fills.reduce((s, f) => s + f.price * f.size, 0) / totalSize : 0;
-  const exit  = parseFloat(document.getElementById('f-exit')?.value)  || 0;
-  const size  = totalSize;
+  const exit  = exitSize  ? exitFills.reduce((s, f) => s + f.price * f.size, 0) / exitSize : 0;
+  const size  = totalSize || exitSize;
   const tick  = parseFloat(document.getElementById('f-tick')?.value)  || 1;
   const fees  = parseFloat(document.getElementById('f-fees')?.value)  || 0;
   const dir   = document.getElementById('f-direction')?.value || 'long';
@@ -2013,6 +2082,7 @@ function openAddTrade(prefillDate) {
   const modalRoot = document.getElementById('modal-root');
   modalRoot.innerHTML = renderTradeModal(prefillDate || todayStr(), null);
   updateFillAvg();
+  updateExitFillAvg();
 }
 
 function openEditTrade(id) {
@@ -2021,6 +2091,7 @@ function openEditTrade(id) {
   const modalRoot = document.getElementById('modal-root');
   modalRoot.innerHTML = renderTradeModal(trade.date, trade);
   updateFillAvg();
+  updateExitFillAvg();
 }
 
 function openJournalModal(dateStr) {
@@ -2049,15 +2120,18 @@ function saveTrade(editId) {
   const symbol = symSel === 'OTHER' || symSel === ''
     ? document.getElementById('f-symbol-custom')?.value?.trim()?.toUpperCase()
     : symSel;
-  const fills  = collectFills();
-  const size   = fills.reduce((s, f) => s + f.size, 0);
-  const entry  = size ? parseFloat((fills.reduce((s, f) => s + f.price * f.size, 0) / size).toFixed(2)) : 0;
-  const exit   = parseFloat(document.getElementById('f-exit')?.value);
-  const tick   = parseFloat(document.getElementById('f-tick')?.value) || 1;
-  const fees   = parseFloat(document.getElementById('f-fees')?.value) || 0;
+  const fills     = collectFills();
+  const exitFills = collectExitFills();
+  const entrySize = fills.reduce((s, f) => s + f.size, 0);
+  const exitSize  = exitFills.reduce((s, f) => s + f.size, 0);
+  const size      = entrySize || exitSize;
+  const entry     = entrySize ? parseFloat((fills.reduce((s, f) => s + f.price * f.size, 0) / entrySize).toFixed(2)) : 0;
+  const exit      = exitSize  ? parseFloat((exitFills.reduce((s, f) => s + f.price * f.size, 0) / exitSize).toFixed(2)) : 0;
+  const tick      = parseFloat(document.getElementById('f-tick')?.value) || 1;
+  const fees      = parseFloat(document.getElementById('f-fees')?.value) || 0;
 
   if (!symbol || !entry || !exit || !size) {
-    showToast('Fill in symbol, at least one entry fill, exit price, and size', true);
+    showToast('Fill in symbol, entry fill(s), exit fill(s)', true);
     return;
   }
   const dir = document.getElementById('f-direction').value;
@@ -2076,6 +2150,7 @@ function saveTrade(editId) {
     session:       finalSess,
     symbol, direction: dir, entry, exit, size, tickValue: tick, pnl, fees,
     fills:         fills.length > 1 ? fills : undefined,
+    exitFills:     exitFills.length > 1 ? exitFills : undefined,
     plannedStop:   stopVal,
     plannedTarget: targetVal,
     setup:         document.getElementById('f-setup').value.trim(),
