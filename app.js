@@ -317,7 +317,7 @@ function pnlClass(val) {
 }
 
 function netPnl(t) {
-  return parseFloat((t.pnl - (t.fees || 0)).toFixed(2));
+  return parseFloat((t.pnl - (t.fees || 0) - (t.miscCost || 0)).toFixed(2));
 }
 
 function calcPnl(entry, exit, size, tickValue, direction) {
@@ -903,6 +903,10 @@ function renderTradeCard(t, blown = false) {
                 ${t.fees ? '−$' + Number(t.fees).toFixed(2) : '—'}
               </div>
             </div>
+            ${t.miscCost ? `<div class="trade-detail-item">
+              <div class="tdl">Misc</div>
+              <div class="tdv" style="color:var(--red)">−$${Number(t.miscCost).toFixed(2)}</div>
+            </div>` : ''}
             <div class="trade-detail-item">
               <div class="tdl">Net PnL</div>
               <div class="tdv ${pnlClass(net)}">${fmtPnl(net)}</div>
@@ -1620,6 +1624,9 @@ function renderTradeModal(prefillDate, existingTrade) {
             <div class="field"><label>Commission / Fees $</label>
               <input id="f-fees" type="number" step="0.01" min="0" value="${t.fees||''}" placeholder="0.00" oninput="updatePnlPreview()">
             </div>
+            <div class="field"><label>Misc Cost / Adjustment $</label>
+              <input id="f-misc" type="number" step="0.01" value="${t.miscCost||''}" placeholder="0.00" oninput="updatePnlPreview()">
+            </div>
             <div class="field"><label>Planned Stop (pts)</label>
               <input id="f-stop" type="number" step="0.25" min="0" value="${t.plannedStop||''}" placeholder="e.g. 4" oninput="updateRPreview()">
             </div>
@@ -1647,6 +1654,10 @@ function renderTradeModal(prefillDate, existingTrade) {
             <div class="pnl-preview-item">
               <span class="pnl-preview-label">Fees</span>
               <span class="pnl-preview-fees" id="pnl-preview-fees">${t.fees ? '−$' + Number(t.fees).toFixed(2) : '$0.00'}</span>
+            </div>
+            <div class="pnl-preview-item" id="pnl-preview-misc-wrap" style="${t.miscCost ? '' : 'display:none'}">
+              <span class="pnl-preview-label">Misc</span>
+              <span class="pnl-preview-fees" id="pnl-preview-misc">${t.miscCost ? '−$' + Number(t.miscCost).toFixed(2) : ''}</span>
             </div>
             <div class="pnl-preview-item">
               <span class="pnl-preview-label">Net PnL</span>
@@ -1853,6 +1864,7 @@ function updatePnlPreview() {
   const size  = totalSize || exitSize;
   const tick  = parseFloat(document.getElementById('f-tick')?.value)  || 1;
   const fees  = parseFloat(document.getElementById('f-fees')?.value)  || 0;
+  const misc  = parseFloat(document.getElementById('f-misc')?.value)  || 0;
   const dir   = document.getElementById('f-direction')?.value || 'long';
   const bar   = document.getElementById('pnl-preview-bar');
   if (!bar) return;
@@ -1860,7 +1872,7 @@ function updatePnlPreview() {
   if (!entry || !exit || !size) { bar.style.display = 'none'; updateRPreview(); return; }
 
   const gross = calcPnl(entry, exit, size, tick, dir);
-  const net   = parseFloat((gross - fees).toFixed(2));
+  const net   = parseFloat((gross - fees - misc).toFixed(2));
 
   bar.style.display = 'flex';
 
@@ -1868,8 +1880,12 @@ function updatePnlPreview() {
   const feesEl  = document.getElementById('pnl-preview-fees');
   const netEl   = document.getElementById('pnl-preview-net');
 
+  const miscEl     = document.getElementById('pnl-preview-misc');
+  const miscWrap   = document.getElementById('pnl-preview-misc-wrap');
   if (grossEl) { grossEl.textContent = fmtPnl(gross); grossEl.className = 'pnl-preview-value ' + pnlClass(gross); }
   if (feesEl)  { feesEl.textContent = fees > 0 ? '−$' + fees.toFixed(2) : '$0.00'; }
+  if (miscEl)  { miscEl.textContent = misc !== 0 ? (misc > 0 ? '−' : '+') + '$' + Math.abs(misc).toFixed(2) : ''; }
+  if (miscWrap){ miscWrap.style.display = misc !== 0 ? '' : 'none'; }
   if (netEl)   { netEl.textContent = fmtPnl(net); netEl.className = 'pnl-preview-value ' + pnlClass(net); }
 
   updateRPreview();
@@ -2129,6 +2145,7 @@ function saveTrade(editId) {
   const exit      = exitSize  ? parseFloat((exitFills.reduce((s, f) => s + f.price * f.size, 0) / exitSize).toFixed(2)) : 0;
   const tick      = parseFloat(document.getElementById('f-tick')?.value) || 1;
   const fees      = parseFloat(document.getElementById('f-fees')?.value) || 0;
+  const miscCost  = parseFloat(document.getElementById('f-misc')?.value) || 0;
 
   if (!symbol || !entry || !exit || !size) {
     showToast('Fill in symbol, entry fill(s), exit fill(s)', true);
@@ -2148,7 +2165,7 @@ function saveTrade(editId) {
     date:          document.getElementById('f-date').value,
     time:          timeVal,
     session:       finalSess,
-    symbol, direction: dir, entry, exit, size, tickValue: tick, pnl, fees,
+    symbol, direction: dir, entry, exit, size, tickValue: tick, pnl, fees, miscCost: miscCost || undefined,
     fills:         fills.length > 1 ? fills : undefined,
     exitFills:     exitFills.length > 1 ? exitFills : undefined,
     plannedStop:   stopVal,
