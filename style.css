@@ -960,6 +960,59 @@ textarea { resize: vertical; min-height: 72px; line-height: 1.6; }
 select option { background: var(--bg2); }
 ::placeholder { color: var(--text3); }
 
+/* ─── ENTRY FILLS ─────────────────────────────────────────────────────────── */
+.fills-list { display: flex; flex-direction: column; gap: 6px; }
+
+.fill-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.fill-remove {
+  flex-shrink: 0;
+  font-size: 16px;
+  padding: 5px 9px;
+  margin-bottom: 0;
+  color: var(--text3);
+  border-color: var(--border);
+}
+.fill-remove:hover { color: var(--red); border-color: rgba(255,34,68,.4); }
+
+.fills-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.fill-avg-display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.fill-avg-label { color: var(--text3); text-transform: uppercase; letter-spacing: .07em; }
+.fill-avg-price { color: var(--cyan); font-weight: 600; font-family: var(--mono); }
+.fill-avg-sep   { color: var(--text3); }
+.fill-avg-qty   { color: var(--text2); }
+
+.fills-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.fill-chip {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--text2);
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  padding: 2px 7px;
+  letter-spacing: .04em;
+}
+
 .session-suggest {
   font-size: 10px;
   color: var(--cyan);

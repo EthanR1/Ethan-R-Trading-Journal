@@ -870,7 +870,7 @@ function renderTradeCard(t, blown = false) {
         <div class="trade-card-body-inner">
           <div class="trade-detail-grid">
             <div class="trade-detail-item">
-              <div class="tdl">Entry</div>
+              <div class="tdl">${t.fills && t.fills.length > 1 ? 'Avg Entry' : 'Entry'}</div>
               <div class="tdv">${t.entry}</div>
             </div>
             <div class="trade-detail-item">
@@ -881,6 +881,12 @@ function renderTradeCard(t, blown = false) {
               <div class="tdl">Size</div>
               <div class="tdv">${t.size} × $${t.tickValue}/pt</div>
             </div>
+            ${t.fills && t.fills.length > 1 ? `<div class="trade-detail-item" style="grid-column:span 3">
+              <div class="tdl">Entry Fills</div>
+              <div class="fills-breakdown">
+                ${t.fills.map((f, i) => `<span class="fill-chip">Fill ${i+1}: ${f.price} × ${f.size}</span>`).join('')}
+              </div>
+            </div>` : ''}
             <div class="trade-detail-item">
               <div class="tdl">Gross PnL</div>
               <div class="tdv ${pnlClass(t.pnl)}">${fmtPnl(t.pnl)}</div>
@@ -1574,15 +1580,21 @@ function renderTradeModal(prefillDate, existingTrade) {
             </div>
           </div>
 
+          <div class="form-section-label" style="margin-top:14px">Entry Fills</div>
+          <div id="fills-list" class="fills-list">
+            ${(t.fills && t.fills.length > 0
+              ? t.fills
+              : [{ price: t.entry || '', size: t.size || '' }]
+            ).map((f, i) => fillRowHtml(f.price, f.size, i)).join('')}
+          </div>
+          <div class="fills-footer">
+            <button class="btn btn-ghost btn-sm" onclick="addFill()">+ Add Fill</button>
+            <div class="fill-avg-display" id="fill-avg-display"></div>
+          </div>
+
           <div class="form-grid g4" style="margin-top:10px">
-            <div class="field"><label>Entry Price</label>
-              <input id="f-entry" type="number" step="0.01" value="${t.entry||''}" placeholder="0.00" oninput="updatePnlPreview()">
-            </div>
             <div class="field"><label>Exit Price</label>
               <input id="f-exit" type="number" step="0.01" value="${t.exit||''}" placeholder="0.00" oninput="updatePnlPreview()">
-            </div>
-            <div class="field"><label>Size (contracts)</label>
-              <input id="f-size" type="number" value="${t.size||''}" placeholder="1" oninput="updatePnlPreview()">
             </div>
             <div class="field"><label>$/Point</label>
               <input id="f-tick" type="number" step="0.01" value="${t.tickValue||''}" placeholder="e.g. 2 = MNQ" oninput="updatePnlPreview()">
@@ -1682,6 +1694,59 @@ function renderTradeModal(prefillDate, existingTrade) {
     </div>`;
 }
 
+// ─── ENTRY FILLS ──────────────────────────────────────────────────────────────
+function fillRowHtml(price, size) {
+  return `<div class="fill-row">
+    <div class="field" style="flex:2;min-width:0">
+      <label>Price</label>
+      <input type="number" class="fill-price" step="0.01" value="${price||''}" placeholder="0.00" oninput="updateFillAvg()">
+    </div>
+    <div class="field" style="flex:1;min-width:0">
+      <label>Contracts</label>
+      <input type="number" class="fill-qty" min="1" value="${size||''}" placeholder="1" oninput="updateFillAvg()">
+    </div>
+    <button class="btn-icon fill-remove" onclick="removeFill(this)" title="Remove fill">×</button>
+  </div>`;
+}
+
+function addFill() {
+  const list = document.getElementById('fills-list');
+  if (!list) return;
+  const div = document.createElement('div');
+  div.innerHTML = fillRowHtml('', '');
+  list.appendChild(div.firstElementChild);
+  updateFillAvg();
+}
+
+function removeFill(btn) {
+  const list = document.getElementById('fills-list');
+  if (!list || list.querySelectorAll('.fill-row').length <= 1) return;
+  btn.closest('.fill-row').remove();
+  updateFillAvg();
+}
+
+function collectFills() {
+  return [...document.querySelectorAll('#fills-list .fill-row')].map(row => ({
+    price: parseFloat(row.querySelector('.fill-price')?.value) || 0,
+    size:  parseFloat(row.querySelector('.fill-qty')?.value)  || 0,
+  })).filter(f => f.price && f.size);
+}
+
+function updateFillAvg() {
+  const fills  = collectFills();
+  const display = document.getElementById('fill-avg-display');
+  if (!display) return;
+  if (!fills.length) { display.innerHTML = ''; updatePnlPreview(); return; }
+  const totalQty = fills.reduce((s, f) => s + f.size, 0);
+  const avgPrice = fills.reduce((s, f) => s + f.price * f.size, 0) / totalQty;
+  display.innerHTML =
+    `<span class="fill-avg-label">Avg entry</span>` +
+    `<span class="fill-avg-price">${avgPrice.toFixed(2)}</span>` +
+    `<span class="fill-avg-sep">·</span>` +
+    `<span class="fill-avg-qty">${totalQty} contract${totalQty !== 1 ? 's' : ''}</span>`;
+  updatePnlPreview();
+}
+
 function onSymbolChange(sel) {
   const custom = document.getElementById('f-symbol-custom');
   if (!sel || !custom) return;
@@ -1712,9 +1777,11 @@ function onTimeChange(input) {
 }
 
 function updatePnlPreview() {
-  const entry = parseFloat(document.getElementById('f-entry')?.value) || 0;
+  const fills = collectFills();
+  const totalSize = fills.reduce((s, f) => s + f.size, 0);
+  const entry = totalSize ? fills.reduce((s, f) => s + f.price * f.size, 0) / totalSize : 0;
   const exit  = parseFloat(document.getElementById('f-exit')?.value)  || 0;
-  const size  = parseFloat(document.getElementById('f-size')?.value)  || 0;
+  const size  = totalSize;
   const tick  = parseFloat(document.getElementById('f-tick')?.value)  || 1;
   const fees  = parseFloat(document.getElementById('f-fees')?.value)  || 0;
   const dir   = document.getElementById('f-direction')?.value || 'long';
@@ -1742,7 +1809,8 @@ function updatePnlPreview() {
 function updateRPreview() {
   const stop   = parseFloat(document.getElementById('f-stop')?.value)   || 0;
   const target = parseFloat(document.getElementById('f-target')?.value) || 0;
-  const size   = parseFloat(document.getElementById('f-size')?.value)   || 0;
+  const fills  = collectFills();
+  const size   = fills.reduce((s, f) => s + f.size, 0);
   const tick   = parseFloat(document.getElementById('f-tick')?.value)   || 1;
   const bar    = document.getElementById('r-preview-bar');
   if (!bar) return;
@@ -1944,7 +2012,7 @@ function saveJournalForm(dateStr) {
 function openAddTrade(prefillDate) {
   const modalRoot = document.getElementById('modal-root');
   modalRoot.innerHTML = renderTradeModal(prefillDate || todayStr(), null);
-  updatePnlPreview();
+  updateFillAvg();
 }
 
 function openEditTrade(id) {
@@ -1952,7 +2020,7 @@ function openEditTrade(id) {
   if (!trade) return;
   const modalRoot = document.getElementById('modal-root');
   modalRoot.innerHTML = renderTradeModal(trade.date, trade);
-  updatePnlPreview();
+  updateFillAvg();
 }
 
 function openJournalModal(dateStr) {
@@ -1981,14 +2049,15 @@ function saveTrade(editId) {
   const symbol = symSel === 'OTHER' || symSel === ''
     ? document.getElementById('f-symbol-custom')?.value?.trim()?.toUpperCase()
     : symSel;
-  const entry  = parseFloat(document.getElementById('f-entry')?.value);
+  const fills  = collectFills();
+  const size   = fills.reduce((s, f) => s + f.size, 0);
+  const entry  = size ? parseFloat((fills.reduce((s, f) => s + f.price * f.size, 0) / size).toFixed(2)) : 0;
   const exit   = parseFloat(document.getElementById('f-exit')?.value);
-  const size   = parseFloat(document.getElementById('f-size')?.value);
   const tick   = parseFloat(document.getElementById('f-tick')?.value) || 1;
   const fees   = parseFloat(document.getElementById('f-fees')?.value) || 0;
 
   if (!symbol || !entry || !exit || !size) {
-    showToast('Fill in symbol, prices, and size', true);
+    showToast('Fill in symbol, at least one entry fill, exit price, and size', true);
     return;
   }
   const dir = document.getElementById('f-direction').value;
@@ -2006,6 +2075,7 @@ function saveTrade(editId) {
     time:          timeVal,
     session:       finalSess,
     symbol, direction: dir, entry, exit, size, tickValue: tick, pnl, fees,
+    fills:         fills.length > 1 ? fills : undefined,
     plannedStop:   stopVal,
     plannedTarget: targetVal,
     setup:         document.getElementById('f-setup').value.trim(),
